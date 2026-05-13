@@ -29,17 +29,62 @@ pub struct Message {
     pub protocol: Protocol,
     pub data: Bytes,
     pub priority: Priority,
-    pub timestamp: u64, // Unix timestamp in milliseconds
+    pub timestamp: u64, // Unix timestamp in milliseconds (legacy, for compatibility)
+    // Bi-temporal timestamps
+    pub t_event: u64,   // Valid Time: When sensor recorded event in physical world
+    pub t_system: u64,  // Transaction Time: When system first learned about event
 }
 
 impl Message {
     pub fn new(protocol: Protocol, data: Bytes, priority: Priority) -> Self {
+        let now = Self::now_ms();
         Self {
             protocol,
             data,
             priority,
-            timestamp: Self::now_ms(),
+            timestamp: now,
+            t_event: now,   // Default: assume event happened now
+            t_system: now,  // Default: system learned about it now
         }
+    }
+
+    /// Create message with explicit bi-temporal timestamps
+    pub fn new_with_temporal(
+        protocol: Protocol,
+        data: Bytes,
+        priority: Priority,
+        t_event: u64,
+        t_system: u64,
+    ) -> Self {
+        Self {
+            protocol,
+            data,
+            priority,
+            timestamp: t_system, // Legacy field uses system time
+            t_event,
+            t_system,
+        }
+    }
+
+    /// Calculate spread between event time and system time (in milliseconds)
+    /// This is a deterministic mark for insurance underwriting and trade compliance
+    pub fn spread_ms(&self) -> i64 {
+        self.t_system as i64 - self.t_event as i64
+    }
+
+    /// Get spread in seconds
+    pub fn spread_seconds(&self) -> f64 {
+        self.spread_ms() as f64 / 1000.0
+    }
+
+    /// Check if this message was delayed (positive spread)
+    pub fn is_delayed(&self) -> bool {
+        self.spread_ms() > 0
+    }
+
+    /// Check if this message was from the future (negative spread)
+    pub fn is_future(&self) -> bool {
+        self.spread_ms() < 0
     }
 
     #[cfg(feature = "std")]

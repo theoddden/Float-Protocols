@@ -22,6 +22,7 @@ pub mod reliability;
 pub mod metrics;
 pub mod sharding;
 pub mod snapshot;
+pub mod bitemporal;
 
 pub use protocol::{Protocol, Message};
 pub use translator::Translator;
@@ -31,3 +32,4 @@ pub use gateway::Gateway;
 pub use reliability::{CircuitBreaker, RetryPolicy};
 pub use sharding::{ShardManager, ShardId};
 pub use snapshot::{SnapshotManager, Snapshot};
+pub use bitemporal::{BiTemporalStore, BiTemporalQuery, QueryTime, SpreadStats};

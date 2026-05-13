@@ -20,6 +20,7 @@ pub struct AsyncCache {
 struct CacheKey {
     protocol: Protocol,
     data_hash: u64,
+    t_event: u64,  // Include valid time in cache key
 }
 
 struct CacheEntry {
@@ -38,9 +39,9 @@ impl AsyncCache {
     }
 
     /// Get cached translation result
-    pub async fn get(&self, protocol: Protocol, data: &Bytes) -> Option<Message> {
+    pub async fn get(&self, protocol: Protocol, data: &Bytes, t_event: u64) -> Option<Message> {
         let data_hash = self.hash_data(data);
-        let key = CacheKey { protocol, data_hash };
+        let key = CacheKey { protocol, data_hash, t_event };
 
         let entries = self.entries.read().await;
         if let Some(entry) = entries.get(&key) {
@@ -55,7 +56,7 @@ impl AsyncCache {
     /// Cache a translation result
     pub async fn set(&self, protocol: Protocol, data: &Bytes, message: Message) {
         let data_hash = self.hash_data(data);
-        let key = CacheKey { protocol, data_hash };
+        let key = CacheKey { protocol, data_hash, t_event: message.t_event };
 
         let mut entries = self.entries.write().await;
         
@@ -68,6 +69,14 @@ impl AsyncCache {
             message,
             timestamp: Instant::now(),
             ttl: self.default_ttl,
+        });
+    }
+
+    /// Invalidate cache entries for a specific protocol and time range
+    pub async fn invalidate_protocol_time_range(&self, protocol: Protocol, start_ms: u64, end_ms: u64) {
+        let mut entries = self.entries.write().await;
+        entries.retain(|key, _| {
+            key.protocol != protocol || !(key.t_event >= start_ms && key.t_event <= end_ms)
         });
     }
 
@@ -149,9 +158,10 @@ mod tests {
             Priority::Operational,
         );
         
+        let t_event = message.t_event;
         cache.set(Protocol::IridiumSBD, &Bytes::from(b"test data"), message.clone()).await;
         
-        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(b"test data")).await;
+        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(b"test data"), t_event).await;
         assert!(cached.is_some());
     }
 
@@ -165,11 +175,12 @@ mod tests {
             Priority::Operational,
         );
         
+        let t_event = message.t_event;
         cache.set(Protocol::IridiumSBD, &Bytes::from(b"test data"), message).await;
         
         tokio::time::sleep(Duration::from_millis(150)).await;
         
-        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(b"test data")).await;
+        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(b"test data"), t_event).await;
         assert!(cached.is_none()); // Should be expired
     }
 }

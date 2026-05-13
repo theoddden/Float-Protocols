@@ -11,6 +11,7 @@ use crate::reliability::{CircuitBreaker, RetryPolicy};
 use crate::metrics::Metrics;
 use crate::sharding::{ShardManager, ShardId};
 use crate::snapshot::{SnapshotManager};
+use crate::bitemporal::{BiTemporalStore, BiTemporalQuery, QueryTime};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -40,6 +41,7 @@ pub struct Gateway {
     metrics: Arc<Metrics>,
     shard_manager: Arc<ShardManager>,
     snapshot_manager: Arc<SnapshotManager>,
+    bitemporal_store: Arc<BiTemporalStore>,
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
     input_tx: mpsc::Sender<Message>,
@@ -61,6 +63,7 @@ impl Gateway {
         let metrics = Arc::new(Metrics::new());
         let shard_manager = Arc::new(ShardManager::new(8, 1000)); // 8 shards, 1000 messages each
         let snapshot_manager = Arc::new(SnapshotManager::new(100, Duration::from_secs(300)));
+        let bitemporal_store = Arc::new(BiTemporalStore::new(10000)); // Store 10k messages
         let (input_tx, input_rx) = mpsc::channel(buffer_size);
 
         let gateway = Self {
@@ -72,6 +75,7 @@ impl Gateway {
             metrics,
             shard_manager,
             snapshot_manager,
+            bitemporal_store,
             asts_credentials,
             telemetry_config,
             input_tx,
@@ -92,6 +96,9 @@ impl Gateway {
     async fn process_message(&self, message: Message) {
         let start = Instant::now();
 
+        // Store message in bi-temporal store for insurance underwriting and trade compliance
+        self.bitemporal_store.store(message.clone()).await;
+
         // Check if this is a deadzone emergency - use dedicated shard for immediate uplink
         if message.is_emergency() {
             let _ = self.shard_manager.push_deadzone(message.clone()).await;
@@ -103,8 +110,8 @@ impl Gateway {
             tracing::debug!("Emergency message sent to deadzone shard, snapshot: {}", snapshot_id);
         }
 
-        // Check cache first
-        if let Some(cached) = self.cache.get(message.protocol, &message.data).await {
+        // Check cache first (bi-temporal: use t_event for cache key)
+        if let Some(cached) = self.cache.get(message.protocol, &message.data, message.t_event).await {
             self.metrics.record_cache_hit();
             self.metrics.increment_translated();
             self.send_to_asts(cached).await;
@@ -133,7 +140,7 @@ impl Gateway {
                 self.metrics.increment_translated();
                 self.metrics.record_latency(start.elapsed());
                 
-                // Cache the result
+                // Cache the result (bi-temporal: include t_event)
                 if let Ok(translated) = self.translator.recv().await {
                     if let Some(translated) = translated {
                         self.cache.set(message.protocol, &message.data, translated.clone()).await;
@@ -189,6 +196,35 @@ impl Gateway {
 
     pub fn snapshot_manager(&self) -> Arc<SnapshotManager> {
         self.snapshot_manager.clone()
+    }
+
+    pub fn bitemporal_store(&self) -> Arc<BiTemporalStore> {
+        self.bitemporal_store.clone()
+    }
+
+    /// Query by valid time (what actually happened in physical world)
+    pub async fn query_valid_time(&self, start_ms: u64, end_ms: u64) -> Vec<Message> {
+        self.bitemporal_store.query_valid_time(start_ms, end_ms).await
+    }
+
+    /// Query by transaction time (what system believed at the time)
+    pub async fn query_transaction_time(&self, start_ms: u64, end_ms: u64) -> Vec<Message> {
+        self.bitemporal_store.query_transaction_time(start_ms, end_ms).await
+    }
+
+    /// Get spread statistics for insurance underwriting
+    pub async fn spread_stats(&self, start_ms: u64, end_ms: u64) -> crate::bitemporal::SpreadStats {
+        self.bitemporal_store.spread_stats(start_ms, end_ms).await
+    }
+
+    /// Get system belief at specific timestamp
+    pub async fn system_belief_at(&self, timestamp_ms: u64) -> Vec<Message> {
+        self.bitemporal_store.system_belief_at(timestamp_ms).await
+    }
+
+    /// Get actual state at specific timestamp
+    pub async fn actual_state_at(&self, timestamp_ms: u64) -> Vec<Message> {
+        self.bitemporal_store.actual_state_at(timestamp_ms).await
     }
 
     pub fn update_asts_credentials(&mut self, credentials: ASTSCredentials) {

@@ -28,6 +28,8 @@ Float Protocols bridges existing dead zone communication systems (Iridium, Inmar
 ## Features
 
 - **Protocol Translation**: Async translation between legacy protocols and AST SpaceMobile
+- **Bi-Temporal Logic**: Dual timestamps (t_event, t_system) for insurance underwriting and trade compliance
+- **Spread Calculation**: Deterministic mark between event time and system time for compliance
 - **Intelligent Batching**: vLLM-inspired message batching with emergency bypass
 - **Distributed Caching**: LMCache-inspired caching with TTL and invalidation
 - **Memory Sharding**: Pre-sharded memory for immediate uplink when deadzone is detected
@@ -104,6 +106,54 @@ cargo run --release
 # Run with test message
 FLOAT_PROTOCOLS_TEST=1 cargo run --release
 ```
+
+## Bi-Temporal Logic
+
+Float Protocols implements bi-temporal modeling for high-end insurance underwriting and global trade compliance:
+
+- **t_event (Valid Time)**: When the sensor actually recorded the event in the physical world
+- **t_system (Transaction Time)**: When your system first learned about that event
+- **Spread Calculation**: Deterministic mark between t_event and t_system for compliance
+
+This enables critical queries:
+- "What did we believe the state of the fleet was at 3 PM yesterday?" (transaction time query)
+- "What actually happened at 3 PM yesterday?" (valid time query)
+
+### Bi-Temporal Queries
+
+```rust
+// Query by valid time (what actually happened)
+let actual_events = gateway.query_valid_time(start_ms, end_ms).await;
+
+// Query by transaction time (what system believed)
+let system_beliefs = gateway.query_transaction_time(start_ms, end_ms).await;
+
+// Get spread statistics for insurance underwriting
+let spread_stats = gateway.spread_stats(start_ms, end_ms).await;
+println!("Average delay: {} seconds", spread_stats.avg_spread_seconds());
+
+// Get system belief at specific timestamp
+let belief = gateway.system_belief_at(timestamp_ms).await;
+
+// Get actual state at specific timestamp
+let actual = gateway.actual_state_at(timestamp_ms).await;
+```
+
+### Spread Calculation
+
+The spread between t_event and t_system is calculated as:
+```
+spread_ms = t_system - t_event
+```
+
+- Positive spread: Message was delayed (system learned about it after it happened)
+- Negative spread: Message from the future (system learned about it before it happened)
+- Zero spread: Real-time processing
+
+This deterministic mark is critical for:
+- Insurance underwriting (proving when events actually occurred)
+- Trade compliance (demonstrating timely reporting)
+- Audit trails (reconstructing historical states)
 
 ## Memory Sharding
 
