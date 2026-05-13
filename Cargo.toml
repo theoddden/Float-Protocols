@@ -1,0 +1,54 @@
+[package]
+name = "float-protocols"
+version = "0.1.0"
+edition = "2021"
+authors = ["Float Protocols Team"]
+description = "Ultra-lightweight async protocol translation bridge for dead zone communication systems"
+
+[dependencies]
+# Async runtime - optimized for low latency
+tokio = { version = "1.35", features = ["rt-multi-thread", "net", "time", "io-util", "sync"], default-features = false }
+tokio-util = { version = "0.7", features = ["codec", "compat"], default-features = false }
+
+# Core - minimal dependencies for ultra-lightweight footprint
+bytes = "1.5"
+heapless = "0.8"  # Fixed-size containers for memory efficiency
+
+# Serialization (minimal)
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# Protocol parsing
+nom = "7.1"  # Parser combinator for protocol parsing
+
+# Reliability patterns
+tower = { version = "0.4", features = ["util", "timeout", "load-shed"], default-features = false }
+tower-http = { version = "0.5", features = ["trace", "cors"], default-features = false }
+
+# Logging
+log = { version = "0.4", default-features = false }
+tracing = { version = "0.1", default-features = false, features = ["log"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"], optional = true }
+
+# Metrics (optional for production monitoring)
+metrics = { version = "0.21", default-features = false, optional = true }
+
+[profile.release]
+opt-level = "z"  # Optimize for size
+lto = true       # Link-time optimization
+codegen-units = 1
+strip = true
+panic = "abort"  # Reduce binary size
+
+[profile.dev]
+opt-level = "s"  # Optimize for size in dev too
+
+[features]
+default = ["std", "tracing"]
+std = ["tokio/rt-multi-thread", "tracing-subscriber"]
+tracing = ["tracing-subscriber"]
+metrics = ["dep:metrics"]
+no-std = []  # For embedded targets
+
+[workspace]
+members = ["."]
