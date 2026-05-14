@@ -5,9 +5,9 @@
 //!
 //! Zero-allocation hot path for Iridium SBD to ASTS Protobuf translation.
 
-use crate::protocol::{Message, Protocol, Priority};
-use crate::iridium_sbd::IridiumSBDMessage;
 use crate::asts_protobuf::ZeroCopyTranslator;
+use crate::iridium_sbd::IridiumSBDMessage;
+use crate::protocol::{Message, Priority, Protocol};
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
@@ -35,7 +35,11 @@ impl Translator {
             }
         });
 
-        Self { input_tx, output_rx, zero_copy_translator: ZeroCopyTranslator::new() }
+        Self {
+            input_tx,
+            output_rx,
+            zero_copy_translator: ZeroCopyTranslator::new(),
+        }
     }
 
     /// Zero-allocation hot path: translate Iridium SBD bytes to ASTS Protobuf
@@ -45,15 +49,19 @@ impl Translator {
         output_buffer: &mut [u8],
         translator: &mut ZeroCopyTranslator,
     ) -> Result<usize, TranslateError> {
-        let iridium_msg = IridiumSBDMessage::parse(iridium_data)
-            .ok_or(TranslateError::InvalidProtocol)?;
+        let iridium_msg =
+            IridiumSBDMessage::parse(iridium_data).ok_or(TranslateError::InvalidProtocol)?;
 
-        translator.translate(iridium_msg, output_buffer)
+        translator
+            .translate(iridium_msg, output_buffer)
             .ok_or(TranslateError::DataTooLarge)
     }
 
     /// Async translation with zero-copy where possible
-    async fn translate_message(message: Message, translator: &mut ZeroCopyTranslator) -> Result<Message, TranslateError> {
+    async fn translate_message(
+        message: Message,
+        translator: &mut ZeroCopyTranslator,
+    ) -> Result<Message, TranslateError> {
         match message.protocol {
             Protocol::IridiumSBD => Self::translate_iridium(message).await,
             Protocol::InmarsatC => Self::translate_inmarsat(message).await,
@@ -68,55 +76,35 @@ impl Translator {
         // Iridium SBD (340 bytes max) → AST SpaceMobile cellular format
         // Zero-copy translation using Bytes::clone
         let cellular_data = Self::decode_iridium_sbd(&message.data)?;
-        let translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            cellular_data,
-            message.priority,
-        );
+        let translated = Message::new(Protocol::ASTSpaceMobile, cellular_data, message.priority);
         Ok(translated)
     }
 
     async fn translate_inmarsat(message: Message) -> Result<Message, TranslateError> {
         // Inmarsat C (teletype) → AST SpaceMobile cellular format
         let cellular_data = Self::decode_inmarsat_c(&message.data)?;
-        let translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            cellular_data,
-            message.priority,
-        );
+        let translated = Message::new(Protocol::ASTSpaceMobile, cellular_data, message.priority);
         Ok(translated)
     }
 
     async fn translate_vsat(message: Message) -> Result<Message, TranslateError> {
         // VSAT IP packets → AST SpaceMobile cellular format with compression
         let compressed = Self::compress_for_cellular(&message.data)?;
-        let translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            compressed,
-            message.priority,
-        );
+        let translated = Message::new(Protocol::ASTSpaceMobile, compressed, message.priority);
         Ok(translated)
     }
 
     async fn translate_hfvhf(message: Message) -> Result<Message, TranslateError> {
         // HF/VHF audio → AST SpaceMobile cellular format (codec translation)
         let digital = Self::codec_translate_to_digital(&message.data)?;
-        let translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            digital,
-            message.priority,
-        );
+        let translated = Message::new(Protocol::ASTSpaceMobile, digital, message.priority);
         Ok(translated)
     }
 
     async fn translate_rockblock(message: Message) -> Result<Message, TranslateError> {
         // RockBLOCK (Iridium SBD variant) → AST SpaceMobile cellular format
         let cellular_data = Self::decode_rockblock(&message.data)?;
-        let translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            cellular_data,
-            message.priority,
-        );
+        let translated = Message::new(Protocol::ASTSpaceMobile, cellular_data, message.priority);
         Ok(translated)
     }
 

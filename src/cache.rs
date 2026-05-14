@@ -20,7 +20,7 @@ pub struct AsyncCache {
 struct CacheKey {
     protocol: Protocol,
     data_hash: u64,
-    t_event: u64,  // Include valid time in cache key
+    t_event: u64, // Include valid time in cache key
 }
 
 struct CacheEntry {

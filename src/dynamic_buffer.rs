@@ -91,8 +91,7 @@ impl DynamicBuffer {
         let new_cap = new_capacity.next_power_of_two().min(self.max_capacity);
 
         unsafe {
-            let new_layout = Layout::array::<u8>(new_cap)
-                .map_err(|_| BufferError::InvalidSize)?;
+            let new_layout = Layout::array::<u8>(new_cap).map_err(|_| BufferError::InvalidSize)?;
 
             let new_ptr = if let Some(old_ptr) = self.ptr {
                 let old_layout =

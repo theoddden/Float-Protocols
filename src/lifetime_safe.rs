@@ -33,9 +33,7 @@ pub struct TranslationArena {
 
 impl TranslationArena {
     pub fn new(pool_size: usize, buffer_size: usize) -> Self {
-        let buffers = (0..pool_size)
-            .map(|_| vec![0u8; buffer_size])
-            .collect();
+        let buffers = (0..pool_size).map(|_| vec![0u8; buffer_size]).collect();
 
         Self {
             buffers,

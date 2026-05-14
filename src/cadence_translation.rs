@@ -267,10 +267,13 @@ mod tests {
             target_protocol: Protocol::ASTSpaceMobile,
             target_cadence: MessageCadence::Every5Seconds,
             message_type: "heartbeat".to_string(),
-            transformation: CadenceTransformation::Throttle { target_interval_ms: 5000 },
+            transformation: CadenceTransformation::Throttle {
+                target_interval_ms: 5000,
+            },
         });
 
-        let action = translator.translate_message("heartbeat", Protocol::IridiumSBD, Priority::Operational);
+        let action =
+            translator.translate_message("heartbeat", Protocol::IridiumSBD, Priority::Operational);
         assert!(matches!(action, TranslationAction::Send));
     }
 

@@ -79,7 +79,10 @@ impl SnapshotManager {
 
         snapshots
             .values()
-            .filter(|s| s.protocol == protocol && (now - s.created_at) < self.snapshot_ttl.as_millis() as u64)
+            .filter(|s| {
+                s.protocol == protocol
+                    && (now - s.created_at) < self.snapshot_ttl.as_millis() as u64
+            })
             .cloned()
             .collect()
     }

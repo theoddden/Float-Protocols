@@ -3,15 +3,15 @@
 //! Implements circuit breakers, retry policies, and health checks
 //! inspired by cloud-native reliability patterns.
 
-use tokio::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,    // Normal operation
-    Open,      // Circuit is open, rejecting requests
-    HalfOpen,  // Testing if circuit should close
+    Closed,   // Normal operation
+    Open,     // Circuit is open, rejecting requests
+    HalfOpen, // Testing if circuit should close
 }
 
 pub struct CircuitBreaker {
@@ -68,7 +68,8 @@ impl CircuitBreaker {
 
             if elapsed > self.recovery_timeout {
                 // Transition to HalfOpen
-                self.state.store(CircuitState::HalfOpen as u32, Ordering::Release);
+                self.state
+                    .store(CircuitState::HalfOpen as u32, Ordering::Release);
                 return false;
             }
             return true;
@@ -78,7 +79,8 @@ impl CircuitBreaker {
 
     fn on_success(&self) {
         self.failure_count.store(0, Ordering::Release);
-        self.state.store(CircuitState::Closed as u32, Ordering::Release);
+        self.state
+            .store(CircuitState::Closed as u32, Ordering::Release);
     }
 
     fn on_failure(&self) {
@@ -92,7 +94,8 @@ impl CircuitBreaker {
         );
 
         if count >= self.failure_threshold {
-            self.state.store(CircuitState::Open as u32, Ordering::Release);
+            self.state
+                .store(CircuitState::Open as u32, Ordering::Release);
         }
     }
 
@@ -144,7 +147,9 @@ impl RetryPolicy {
                 Err(_) => {
                     tokio::time::sleep(delay).await;
                     delay = std::cmp::min(
-                        Duration::from_millis((delay.as_millis() as f64 * self.backoff_factor) as u64),
+                        Duration::from_millis(
+                            (delay.as_millis() as f64 * self.backoff_factor) as u64,
+                        ),
                         self.max_delay,
                     );
                 }
