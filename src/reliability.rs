@@ -59,8 +59,7 @@ impl CircuitBreaker {
             // Check if recovery timeout has elapsed
             let last_failure = self.last_failure_time.load(Ordering::Acquire);
             let elapsed = Duration::from_millis(
-                (Instant::now()
-                    .elapsed_since_startup()
+                (tokio::time::Instant::elapsed_since_startup()
                     .unwrap_or(Duration::ZERO)
                     .as_millis() as u64)
                     - last_failure,
@@ -86,8 +85,7 @@ impl CircuitBreaker {
     fn on_failure(&self) {
         let count = self.failure_count.fetch_add(1, Ordering::AcqRel) + 1;
         self.last_failure_time.store(
-            Instant::now()
-                .elapsed_since_startup()
+            tokio::time::Instant::elapsed_since_startup()
                 .unwrap_or(Duration::ZERO)
                 .as_millis() as u64,
             Ordering::Release,
@@ -180,8 +178,7 @@ impl HealthChecker {
             loop {
                 if check_fn() {
                     last_check.store(
-                        Instant::now()
-                            .elapsed_since_startup()
+                        tokio::time::Instant::elapsed_since_startup()
                             .unwrap_or(Duration::ZERO)
                             .as_millis() as u64,
                         Ordering::Release,
@@ -200,8 +197,7 @@ impl HealthChecker {
             Some(
                 Instant::now()
                     - Duration::from_millis(
-                        Instant::now()
-                            .elapsed_since_startup()
+                        tokio::time::Instant::elapsed_since_startup()
                             .unwrap_or(Duration::ZERO)
                             .as_millis() as u64
                             - timestamp,
@@ -223,7 +219,7 @@ trait InstantExt {
     fn elapsed_since_startup() -> Option<Duration>;
 }
 
-impl InstantExt for Instant {
+impl InstantExt for tokio::time::Instant {
     fn elapsed_since_startup() -> Option<Duration> {
         // In production, this would use actual startup time
         Some(Duration::from_secs(0))

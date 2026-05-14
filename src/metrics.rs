@@ -2,8 +2,8 @@
 //!
 //! Tracks message throughput, latency, error rates, and cache performance.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 pub struct Metrics {
     // Counters

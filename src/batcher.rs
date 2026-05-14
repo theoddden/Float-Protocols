@@ -4,12 +4,11 @@
 //! for emergency messages. Uses fixed-size buffers and backpressure.
 
 use crate::protocol::{Message, Priority};
-use heapless::Vec; // Fixed-size vector for no-std compatibility
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
 pub struct AsyncBatcher {
-    buffer: Vec<Message, 256>, // Fixed-size buffer (256 messages max)
+    buffer: Vec<Message>,
     max_batch_size: usize,
     batch_timeout: Duration,
     input_tx: mpsc::Sender<Message>,
@@ -109,7 +108,7 @@ mod tests {
 
         let emergency_msg = Message::new(
             crate::protocol::Protocol::IridiumSBD,
-            bytes::Bytes::from(b"emergency"),
+            bytes::Bytes::from(&b"emergency"[..]),
             crate::protocol::Priority::Emergency,
         );
 

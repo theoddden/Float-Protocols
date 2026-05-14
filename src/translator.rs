@@ -7,7 +7,7 @@
 
 use crate::asts_protobuf::ZeroCopyTranslator;
 use crate::iridium_sbd::IridiumSBDMessage;
-use crate::protocol::{Message, Priority, Protocol};
+use crate::protocol::{Message, Protocol};
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
@@ -53,14 +53,14 @@ impl Translator {
             IridiumSBDMessage::parse(iridium_data).ok_or(TranslateError::InvalidProtocol)?;
 
         translator
-            .translate(iridium_msg, output_buffer)
+            .translate(&iridium_msg, output_buffer)
             .ok_or(TranslateError::DataTooLarge)
     }
 
     /// Async translation with zero-copy where possible
     async fn translate_message(
         message: Message,
-        translator: &mut ZeroCopyTranslator,
+        _translator: &mut ZeroCopyTranslator,
     ) -> Result<Message, TranslateError> {
         match message.protocol {
             Protocol::IridiumSBD => Self::translate_iridium(message).await,
@@ -171,7 +171,8 @@ impl BufferPool {
 
     /// Get buffer at specific index
     pub fn get_buffer_at(&mut self, index: usize) -> &mut [u8; 2048] {
-        &mut self.buffers[index % self.buffers.len()]
+        let len = self.buffers.len();
+        &mut self.buffers[index % len]
     }
 }
 

@@ -10,12 +10,11 @@ readme = "README.md"
 
 [dependencies]
 # Async runtime - optimized for low latency
-tokio = { version = "1.35", features = ["rt-multi-thread", "net", "time", "io-util", "sync"], default-features = false }
+tokio = { version = "1.35", features = ["rt-multi-thread", "net", "time", "io-util", "sync", "macros", "test-util"], default-features = false }
 tokio-util = { version = "0.7", features = ["codec", "compat"], default-features = false }
 
 # Core - minimal dependencies for ultra-lightweight footprint
-bytes = "1.5"
-heapless = "0.8"  # Fixed-size containers for memory efficiency
+bytes = { version = "1.5", features = ["serde"] }
 
 # Serialization (minimal)
 serde = { version = "1.0", default-features = false, features = ["derive"] }

@@ -4,7 +4,6 @@
 //! while maintaining performance through reference-counted Bytes.
 
 use bytes::Bytes;
-use std::sync::Arc;
 
 /// Lifetime-safe translation result with owned data
 #[derive(Debug, Clone)]
@@ -59,6 +58,12 @@ impl TranslationArena {
     pub fn clone_to_bytes(&self, buffer: &[u8], len: usize) -> Bytes {
         Bytes::copy_from_slice(&buffer[..len])
     }
+
+    /// Clone buffer at specific index to owned Bytes
+    pub fn clone_to_bytes_at(&self, index: usize, len: usize) -> Bytes {
+        let buffer = &self.buffers[index % self.buffers.len()];
+        Bytes::copy_from_slice(&buffer[..len])
+    }
 }
 
 /// Hybrid translator: zero-allocation for hot path, safe for DX
@@ -88,9 +93,10 @@ impl HybridTranslator {
         &mut self,
         iridium_msg: &crate::iridium_sbd::IridiumSBDMessage,
     ) -> Option<SafeTranslationResult> {
+        let buffer_index = self.arena.next_index;
         let buffer = self.arena.get_buffer();
         let size = self.translate_zero_alloc(iridium_msg, buffer)?;
-        let data = self.arena.clone_to_bytes(buffer, size);
+        let data = self.arena.clone_to_bytes_at(buffer_index, size);
         Some(SafeTranslationResult::new(data))
     }
 }

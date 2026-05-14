@@ -186,7 +186,7 @@ impl CadenceTranslator {
                     }
                 }
                 CadenceTransformation::Aggregate { window_ms } => {
-                    let key = format!("{}:{}", rule.message_type, source_protocol);
+                    let _key = format!("{}:{}", rule.message_type, source_protocol);
                     // TODO: Implement aggregation logic
                     TranslationAction::Buffer {
                         window_ms: *window_ms,

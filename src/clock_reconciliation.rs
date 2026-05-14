@@ -3,7 +3,7 @@
 //! Solves the problem where device internal clocks drift from ASTS network time
 //! during dead zone bursts. Tracks offset and applies corrections.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ClockOffset {
@@ -133,7 +133,7 @@ impl ClockReconciler {
 
     /// Calculate clock offset from device timestamp and network timestamp
     pub fn calculate_offset(
-        device_id: u64,
+        _device_id: u64,
         device_timestamp_ms: u64,
         network_timestamp_ms: u64,
     ) -> i64 {
@@ -210,6 +210,22 @@ impl ClockReconciler {
             avg_offset_ms: avg_offset,
         }
     }
+
+    fn now_ms() -> u64 {
+        #[cfg(feature = "std")]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            0
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -225,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_clock_reconciliation() {
-        let reconciler =
+        let mut reconciler =
             ClockReconciler::new(10, Duration::from_secs(300), NetworkTimeSource::LocalClock);
 
         // Device clock is 1000ms ahead of network time
@@ -242,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_confidence_filtering() {
-        let reconciler =
+        let mut reconciler =
             ClockReconciler::new(10, Duration::from_secs(300), NetworkTimeSource::LocalClock);
 
         let offset = ClockOffset::new(1, 1000, 0.5); // Low confidence

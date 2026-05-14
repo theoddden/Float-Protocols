@@ -3,7 +3,7 @@
 //! Fixed-size stack buffers can overflow with unexpected payloads.
 //! This module provides dynamic sizing with bounds checking and graceful degradation.
 
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{alloc, dealloc, realloc, Layout};
 use std::ptr::NonNull;
 
 #[derive(Debug)]
@@ -97,7 +97,7 @@ impl DynamicBuffer {
                 let old_layout =
                     Layout::array::<u8>(self.capacity).map_err(|_| BufferError::InvalidSize)?;
 
-                let ptr = realloc(old_ptr.as_ptr() as *mut u8, old_layout, new_layout.size);
+                let ptr = realloc(old_ptr.as_ptr() as *mut u8, old_layout, new_layout.size());
                 if ptr.is_null() {
                     return Err(BufferError::AllocationFailed);
                 }

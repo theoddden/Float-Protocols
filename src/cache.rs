@@ -3,9 +3,8 @@
 //! Provides TTL-based caching with async invalidation for protocol
 //! translations, reducing redundant computation over expensive satellite links.
 
-use crate::protocol::{Message, Protocol};
+use crate::protocol::{Message, Priority, Protocol};
 use bytes::Bytes;
-use heapless::Vec; // Fixed-size for no-std compatibility
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
@@ -40,7 +39,7 @@ impl AsyncCache {
 
     /// Get cached translation result
     pub async fn get(&self, protocol: Protocol, data: &Bytes, t_event: u64) -> Option<Message> {
-        let data_hash = self.hash_data(data);
+        let data_hash = Self::hash_data(data);
         let key = CacheKey {
             protocol,
             data_hash,
@@ -59,7 +58,7 @@ impl AsyncCache {
 
     /// Cache a translation result
     pub async fn set(&self, protocol: Protocol, data: &Bytes, message: Message) {
-        let data_hash = self.hash_data(data);
+        let data_hash = Self::hash_data(data);
         let key = CacheKey {
             protocol,
             data_hash,
@@ -170,7 +169,7 @@ mod tests {
 
         let message = Message::new(
             Protocol::IridiumSBD,
-            Bytes::from(b"test data"),
+            Bytes::from(&b"test data"[..]),
             Priority::Operational,
         );
 
@@ -178,13 +177,13 @@ mod tests {
         cache
             .set(
                 Protocol::IridiumSBD,
-                &Bytes::from(b"test data"),
+                &Bytes::from(&b"test data"[..]),
                 message.clone(),
             )
             .await;
 
         let cached = cache
-            .get(Protocol::IridiumSBD, &Bytes::from(b"test data"), t_event)
+            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), t_event)
             .await;
         assert!(cached.is_some());
     }
@@ -195,19 +194,19 @@ mod tests {
 
         let message = Message::new(
             Protocol::IridiumSBD,
-            Bytes::from(b"test data"),
+            Bytes::from(&b"test data"[..]),
             Priority::Operational,
         );
 
         let t_event = message.t_event;
         cache
-            .set(Protocol::IridiumSBD, &Bytes::from(b"test data"), message)
+            .set(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), message)
             .await;
 
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         let cached = cache
-            .get(Protocol::IridiumSBD, &Bytes::from(b"test data"), t_event)
+            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), t_event)
             .await;
         assert!(cached.is_none()); // Should be expired
     }

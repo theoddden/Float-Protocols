@@ -4,15 +4,14 @@
 //! Integrates with telemetry for accurate ping monitoring.
 
 use crate::batcher::AsyncBatcher;
-use crate::bitemporal::{BiTemporalQuery, BiTemporalStore, QueryTime};
+use crate::bitemporal::{BiTemporalStore, QueryTime};
 use crate::cache::AsyncCache;
 use crate::metrics::Metrics;
-use crate::protocol::{Message, Priority, Protocol};
+use crate::protocol::{Message, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
-use crate::sharding::{ShardId, ShardManager};
+use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::Translator;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -130,16 +129,12 @@ impl Gateway {
         // Push to appropriate shard for load balancing
         let _ = self.shard_manager.push(message.clone()).await;
 
-        // Translate with circuit breaker and retry
+        // Translate with circuit breaker
         let result = self
             .circuit_breaker
-            .call(|| {
-                self.retry_policy.execute(|| {
-                    Box::pin(async {
-                        self.translator.send(message.clone()).await?;
-                        Ok(())
-                    })
-                })
+            .call(async {
+                self.translator.send(message.clone()).await;
+                Ok::<(), Box<dyn std::error::Error>>(())
             })
             .await;
 
@@ -149,19 +144,17 @@ impl Gateway {
                 self.metrics.record_latency(start.elapsed());
 
                 // Cache the result (bi-temporal: include t_event)
-                if let Ok(translated) = self.translator.recv().await {
-                    if let Some(translated) = translated {
-                        self.cache
-                            .set(message.protocol, &message.data, translated.clone())
-                            .await;
+                if let Some(translated) = self.translator.recv().await {
+                    self.cache
+                        .set(message.protocol, &message.data, translated.clone())
+                        .await;
 
-                        // Create snapshot for fast uplink building
-                        self.snapshot_manager
-                            .create_snapshot(vec![translated.clone()], translated.protocol)
-                            .await;
+                    // Create snapshot for fast uplink building
+                    self.snapshot_manager
+                        .create_snapshot(vec![translated.clone()], translated.protocol)
+                        .await;
 
-                        self.send_to_asts(translated).await;
-                    }
+                    self.send_to_asts(translated).await;
                 }
             }
             Err(_) => {
@@ -172,7 +165,7 @@ impl Gateway {
 
     async fn send_to_asts(&self, message: Message) {
         // Send to AST SpaceMobile using BYO credentials
-        if let Some(creds) = &self.asts_credentials {
+        if let Some(_creds) = &self.asts_credentials {
             // TODO: Implement actual AST SpaceMobile API call
             // This would use the user's account details
             self.metrics.record_protocol(Protocol::ASTSpaceMobile);
@@ -184,8 +177,8 @@ impl Gateway {
         }
     }
 
-    async fn send_telemetry_ping(&self, message: &Message) {
-        if let Some(endpoint) = &self.telemetry_config.endpoint {
+    async fn send_telemetry_ping(&self, _message: &Message) {
+        if let Some(_endpoint) = &self.telemetry_config.endpoint {
             // TODO: Send telemetry to configured endpoint
             // Includes message metadata, latency, cache hit rate, etc.
         }
@@ -269,7 +262,7 @@ mod tests {
 
         let message = Message::new(
             Protocol::IridiumSBD,
-            Bytes::from(b"test"),
+            Bytes::from(&b"test"[..]),
             Priority::Operational,
         );
 

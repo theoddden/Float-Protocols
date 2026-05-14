@@ -5,7 +5,6 @@
 //! transitions from connected to disconnected states.
 
 use crate::protocol::{Message, Protocol};
-use bytes::Bytes;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
@@ -195,7 +194,7 @@ impl ShardManager {
         ShardId((hash % self.num_shards as u64) as u64)
     }
 
-    async fn select_shard_for_message(&self, message: &Message) -> ShardId {
+    async fn select_shard_for_message(&self, _message: &Message) -> ShardId {
         // Load balancing: select shard with least messages
         let shards = self.shards.read().await;
         let min_shard = shards
@@ -211,7 +210,7 @@ impl ShardManager {
         let mut shards = self.shards.write().await;
         shards
             .entry(shard_id)
-            .or_insert_with(|| MemoryShard::new(shard_id, self.shard_size));
+            .or_insert_with(|| MemoryShard::new(shard_id, self.shard_size, false));
     }
 }
 
