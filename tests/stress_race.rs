@@ -5,7 +5,7 @@
 use bytes::Bytes;
 use float_protocols::protocol::{Message, Priority, Protocol};
 use float_protocols::sharding::{ShardId, ShardManager};
-use tokio::time::{interval, sleep, Duration};
+use tokio::time::{interval, Duration};
 
 #[tokio::test]
 async fn test_asts_toggle_stress() {
@@ -109,7 +109,7 @@ async fn test_backpressure_under_load() {
             Bytes::from(format!("overflow_{}", i)),
             Priority::Operational,
         );
-        if let Err(_) = shard_manager_clone.push(msg).await {
+        if shard_manager_clone.push(msg).await.is_err() {
             backpressure_count += 1;
         }
     }
