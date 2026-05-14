@@ -183,7 +183,11 @@ mod tests {
             .await;
 
         let cached = cache
-            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), t_event)
+            .get(
+                Protocol::IridiumSBD,
+                &Bytes::from(&b"test data"[..]),
+                t_event,
+            )
             .await;
         assert!(cached.is_some());
     }
@@ -200,13 +204,21 @@ mod tests {
 
         let t_event = message.t_event;
         cache
-            .set(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), message)
+            .set(
+                Protocol::IridiumSBD,
+                &Bytes::from(&b"test data"[..]),
+                message,
+            )
             .await;
 
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         let cached = cache
-            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), t_event)
+            .get(
+                Protocol::IridiumSBD,
+                &Bytes::from(&b"test data"[..]),
+                t_event,
+            )
             .await;
         assert!(cached.is_none()); // Should be expired
     }
