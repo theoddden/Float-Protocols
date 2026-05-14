@@ -59,7 +59,7 @@ pub enum CadenceTransformation {
 
 pub struct CadenceTranslator {
     rules: Vec<CadenceRule>,
-    message_tracker: HashMap<String, Instant>,
+    _message_tracker: HashMap<String, Instant>,
     rate_limiters: HashMap<String, RateLimiter>,
 }
 
@@ -92,11 +92,17 @@ impl RateLimiter {
     }
 }
 
+impl Default for CadenceTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CadenceTranslator {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
-            message_tracker: HashMap::new(),
+            _message_tracker: HashMap::new(),
             rate_limiters: HashMap::new(),
         }
     }

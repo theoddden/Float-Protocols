@@ -8,11 +8,11 @@ use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
 pub struct AsyncBatcher {
-    buffer: Vec<Message>,
-    max_batch_size: usize,
-    batch_timeout: Duration,
+    _buffer: Vec<Message>,
+    _max_batch_size: usize,
+    _batch_timeout: Duration,
     input_tx: mpsc::Sender<Message>,
-    output_rx: mpsc::Receiver<Vec<Message>>,
+    _output_rx: mpsc::Receiver<Vec<Message>>,
 }
 
 impl AsyncBatcher {
@@ -43,7 +43,7 @@ impl AsyncBatcher {
                                         || last_flush.elapsed() >= batch_timeout
                                         || Self::should_flush(&buffer)
                                     {
-                                        let batch: Vec<_> = buffer.drain(..).collect();
+                                        let batch = std::mem::take(&mut buffer);
                                         if !batch.is_empty() {
                                             let _ = output_tx.send(batch).await;
                                         }
@@ -58,7 +58,7 @@ impl AsyncBatcher {
                     // Timeout flush
                     _ = tokio::time::sleep_until(last_flush + batch_timeout) => {
                         if !buffer.is_empty() {
-                            let batch: Vec<_> = buffer.drain(..).collect();
+                            let batch = std::mem::take(&mut buffer);
                             let _ = output_tx.send(batch).await;
                             last_flush = Instant::now();
                         }
@@ -68,11 +68,11 @@ impl AsyncBatcher {
         });
 
         Self {
-            buffer: Vec::new(),
-            max_batch_size,
-            batch_timeout,
+            _buffer: Vec::new(),
+            _max_batch_size,
+            _batch_timeout,
             input_tx,
-            output_rx,
+            _output_rx,
         }
     }
 

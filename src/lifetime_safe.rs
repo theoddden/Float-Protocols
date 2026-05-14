@@ -27,7 +27,7 @@ impl SafeTranslationResult {
 pub struct TranslationArena {
     buffers: Vec<Vec<u8>>,
     next_index: usize,
-    buffer_size: usize,
+    _buffer_size: usize,
 }
 
 impl TranslationArena {
@@ -37,7 +37,7 @@ impl TranslationArena {
         Self {
             buffers,
             next_index: 0,
-            buffer_size,
+            _buffer_size: buffer_size,
         }
     }
 
@@ -68,13 +68,13 @@ impl TranslationArena {
 
 /// Hybrid translator: zero-allocation for hot path, safe for DX
 pub struct HybridTranslator {
-    arena: TranslationArena,
+    _arena: TranslationArena,
 }
 
 impl HybridTranslator {
     pub fn new(pool_size: usize, buffer_size: usize) -> Self {
         Self {
-            arena: TranslationArena::new(pool_size, buffer_size),
+            _arena: TranslationArena::new(pool_size, buffer_size),
         }
     }
 

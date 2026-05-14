@@ -41,7 +41,7 @@ impl DynamicBuffer {
                 if ptr.is_null() {
                     return Err(BufferError::AllocationFailed);
                 }
-                NonNull::new(ptr as *mut u8)
+                NonNull::new(ptr)
             }
         };
 
@@ -97,17 +97,17 @@ impl DynamicBuffer {
                 let old_layout =
                     Layout::array::<u8>(self.capacity).map_err(|_| BufferError::InvalidSize)?;
 
-                let ptr = realloc(old_ptr.as_ptr() as *mut u8, old_layout, new_layout.size());
+                let ptr = realloc(old_ptr.as_ptr(), old_layout, new_layout.size());
                 if ptr.is_null() {
                     return Err(BufferError::AllocationFailed);
                 }
-                NonNull::new(ptr as *mut u8)
+                NonNull::new(ptr)
             } else {
                 let ptr = alloc(new_layout);
                 if ptr.is_null() {
                     return Err(BufferError::AllocationFailed);
                 }
-                NonNull::new(ptr as *mut u8)
+                NonNull::new(ptr)
             };
 
             self.ptr = new_ptr;
@@ -173,7 +173,7 @@ impl DynamicBuffer {
             if let Some(ptr) = self.ptr {
                 let layout =
                     Layout::array::<u8>(self.capacity).map_err(|_| BufferError::InvalidSize)?;
-                dealloc(ptr.as_ptr() as *mut u8, layout);
+                dealloc(ptr.as_ptr(), layout);
             }
 
             self.ptr = None;
@@ -190,7 +190,7 @@ impl Drop for DynamicBuffer {
         unsafe {
             if let Some(ptr) = self.ptr {
                 let layout = Layout::array::<u8>(self.capacity).map_err(|_| ()).unwrap(); // We know the layout is valid
-                dealloc(ptr.as_ptr() as *mut u8, layout);
+                dealloc(ptr.as_ptr(), layout);
             }
         }
     }

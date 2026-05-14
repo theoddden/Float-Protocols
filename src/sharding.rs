@@ -13,7 +13,7 @@ use tokio::time::{Duration, Instant};
 pub struct ShardId(pub u64);
 
 pub struct MemoryShard {
-    id: ShardId,
+    _id: ShardId,
     buffer: Vec<Message>,
     max_size: usize,
     last_access: Instant,
@@ -23,7 +23,7 @@ pub struct MemoryShard {
 impl MemoryShard {
     pub fn new(id: ShardId, max_size: usize, is_deadzone_shard: bool) -> Self {
         Self {
-            id,
+            _id: id,
             buffer: Vec::with_capacity(max_size),
             max_size,
             last_access: Instant::now(),
@@ -73,7 +73,7 @@ pub struct ShardManager {
     shards: RwLock<HashMap<ShardId, MemoryShard>>,
     num_shards: usize,
     shard_size: usize,
-    next_shard_id: u64,
+    _next_shard_id: u64,
     deadzone_shard_id: ShardId,
 }
 
@@ -100,7 +100,7 @@ impl ShardManager {
             shards: RwLock::new(shards),
             num_shards,
             shard_size,
-            next_shard_id: num_shards as u64,
+            _next_shard_id: num_shards as u64,
             deadzone_shard_id,
         }
     }
@@ -191,7 +191,7 @@ impl ShardManager {
             Protocol::RockBLOCK => 5,
             Protocol::ASTSpaceMobile => 6,
         };
-        ShardId((hash % self.num_shards as u64) as u64)
+        ShardId(hash % self.num_shards as u64)
     }
 
     async fn select_shard_for_message(&self, _message: &Message) -> ShardId {

@@ -87,11 +87,7 @@ impl Metrics {
     pub fn snapshot(&self) -> MetricsSnapshot {
         let total_latency = self.total_latency_ms.load(Ordering::Relaxed);
         let samples = self.latency_samples.load(Ordering::Relaxed);
-        let avg_latency_ms = if samples > 0 {
-            total_latency / samples
-        } else {
-            0
-        };
+        let avg_latency_ms = total_latency.checked_div(samples).unwrap_or(0);
 
         let cache_hits = self.cache_hits.load(Ordering::Relaxed);
         let cache_misses = self.cache_misses.load(Ordering::Relaxed);

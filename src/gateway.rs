@@ -33,10 +33,10 @@ pub struct TelemetryConfig {
 
 pub struct Gateway {
     translator: Translator,
-    batcher: AsyncBatcher,
+    _batcher: AsyncBatcher,
     cache: AsyncCache,
     circuit_breaker: CircuitBreaker,
-    retry_policy: RetryPolicy,
+    _retry_policy: RetryPolicy,
     metrics: Arc<Metrics>,
     shard_manager: Arc<ShardManager>,
     snapshot_manager: Arc<SnapshotManager>,
@@ -67,10 +67,10 @@ impl Gateway {
 
         let gateway = Arc::new(Self {
             translator,
-            batcher,
+            _batcher: batcher,
             cache,
             circuit_breaker,
-            retry_policy,
+            _retry_policy: retry_policy,
             metrics,
             shard_manager,
             snapshot_manager,
@@ -136,7 +136,7 @@ impl Gateway {
         let result = self
             .circuit_breaker
             .call(async {
-                self.translator.send(message.clone()).await;
+                let _ = self.translator.send(message.clone()).await;
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
             .await;
