@@ -1,9 +1,9 @@
 [package]
-name = "float-protocols"
+name = "float_protocols"
 version = "0.1.0"
 edition = "2021"
 authors = ["Float Protocols Team"]
-description = "Ultra-lightweight async protocol translation bridge for dead zone communication systems"
+description = "Float Protocols - Ultra-lightweight async protocol translation bridge for dead zone communication systems"
 license = "Apache-2.0"
 repository = "https://github.com/theoddden/float-protocols"
 readme = "README.md"
