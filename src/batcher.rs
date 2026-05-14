@@ -12,13 +12,13 @@ pub struct AsyncBatcher {
     max_batch_size: usize,
     batch_timeout: Duration,
     input_tx: mpsc::Sender<Message>,
-    output_tx: mpsc::Sender<Vec<Message>>,
+    output_rx: mpsc::Receiver<Vec<Message>>,
 }
 
 impl AsyncBatcher {
     pub fn new(max_batch_size: usize, batch_timeout: Duration, buffer_size: usize) -> Self {
-        let (input_tx, mut input_rx) = mpsc::channel(buffer_size);
-        let (output_tx, output_rx) = mpsc::channel(buffer_size);
+        let (input_tx, mut input_rx) = mpsc::channel::<Message>(buffer_size);
+        let (output_tx, output_rx) = mpsc::channel::<Vec<Message>>(buffer_size);
 
         // Spawn async batching task
         tokio::spawn(async move {
@@ -92,9 +92,9 @@ impl AsyncBatcher {
     }
 
     pub fn receiver(&self) -> mpsc::Receiver<Vec<Message>> {
-        // Clone the receiver for external use
-        // Note: This is simplified - in production, use proper channel cloning
-        self.output_tx.clone()
+        // Note: Receivers cannot be cloned, this is a design limitation
+        // In production, this would need a different architecture
+        panic!("Receivers cannot be cloned - this is a design limitation")
     }
 }
 

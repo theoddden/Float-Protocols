@@ -7,11 +7,12 @@ use crate::batcher::AsyncBatcher;
 use crate::bitemporal::{BiTemporalStore, QueryTime};
 use crate::cache::AsyncCache;
 use crate::metrics::Metrics;
-use crate::protocol::{Message, Protocol};
+use crate::protocol::{Message, Priority, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
 use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::Translator;
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -144,18 +145,16 @@ impl Gateway {
                 self.metrics.record_latency(start.elapsed());
 
                 // Cache the result (bi-temporal: include t_event)
-                if let Some(translated) = self.translator.recv().await {
-                    self.cache
-                        .set(message.protocol, &message.data, translated.clone())
-                        .await;
+                self.cache
+                    .set(message.protocol, &message.data, message.clone())
+                    .await;
 
-                    // Create snapshot for fast uplink building
-                    self.snapshot_manager
-                        .create_snapshot(vec![translated.clone()], translated.protocol)
-                        .await;
+                // Create snapshot for fast uplink building
+                self.snapshot_manager
+                    .create_snapshot(vec![message.clone()], message.protocol)
+                    .await;
 
-                    self.send_to_asts(translated).await;
-                }
+                self.send_to_asts(message).await;
             }
             Err(_) => {
                 self.metrics.record_error();
