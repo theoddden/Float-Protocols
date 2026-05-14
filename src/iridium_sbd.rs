@@ -34,6 +34,11 @@ impl IridiumSBDMessage {
             return None;
         }
 
+        // Check if length exceeds maximum payload size (340 bytes)
+        if length > 340 {
+            return None;
+        }
+
         let mut payload = [0u8; 340];
         payload[..length as usize].copy_from_slice(&data[3..3 + length as usize]);
 
