@@ -246,8 +246,8 @@ impl Gateway {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::protocol::Priority;
+    use bytes::Bytes;
 
     #[tokio::test]
     async fn test_gateway_creation() {
