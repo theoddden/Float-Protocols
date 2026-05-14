@@ -95,7 +95,10 @@ impl HybridTranslator {
     ) -> Option<SafeTranslationResult> {
         let buffer_index = self.arena.next_index;
         let buffer = self.arena.get_buffer();
-        let size = self.translate_zero_alloc(iridium_msg, buffer)?;
+        let size = {
+            let buffer_slice = &mut *buffer;
+            self.translate_zero_alloc(iridium_msg, buffer_slice)?
+        };
         let data = self.arena.clone_to_bytes_at(buffer_index, size);
         Some(SafeTranslationResult::new(data))
     }

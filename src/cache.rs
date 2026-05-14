@@ -162,6 +162,7 @@ impl CacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Priority;
 
     #[tokio::test]
     async fn test_cache_get_set() {

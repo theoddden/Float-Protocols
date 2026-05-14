@@ -53,7 +53,7 @@ impl Gateway {
         cache_ttl: Duration,
         asts_credentials: Option<ASTSCredentials>,
         telemetry_config: TelemetryConfig,
-    ) -> Self {
+    ) -> Arc<Self> {
         let translator = Translator::new(buffer_size);
         let batcher = AsyncBatcher::new(10, batch_timeout, buffer_size);
         let cache = AsyncCache::new(1000, cache_ttl);
