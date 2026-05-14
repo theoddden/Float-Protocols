@@ -201,7 +201,7 @@ impl Translator {
         use nom::IResult;
 
         type SamsaraParseResult<'a> =
-            IResult<&'a [u8], (_, _, _, u64, f64, f64, u32), Error<&'a [u8]>>;
+            IResult<&'a [u8], (u8, u16, &'a [u8], u64, f64, f64, u32), Error<&'a [u8]>>;
 
         // Convert Bytes to slice for nom parser
         let data_slice = data.as_ref();
