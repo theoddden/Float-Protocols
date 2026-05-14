@@ -224,16 +224,22 @@ impl CompactSpan {
         let attr_count = buf.get_u8() as usize;
         let mut attributes = Vec::with_capacity(attr_count);
         for _ in 0..attr_count {
-            if buf.remaining() < 2 {
-                return Err("Insufficient data for attribute");
+            if buf.remaining() < 1 {
+                return Err("Insufficient data for attribute key length");
             }
             let key_len = buf.get_u8() as usize;
-            let val_len = buf.get_u8() as usize;
-            if buf.remaining() < key_len + val_len {
-                return Err("Insufficient data for attribute value");
+            if buf.remaining() < key_len {
+                return Err("Insufficient data for attribute key");
             }
             let key = String::from_utf8(buf.split_to(key_len).to_vec())
                 .map_err(|_| "Invalid UTF-8 in attribute key")?;
+            if buf.remaining() < 1 {
+                return Err("Insufficient data for attribute value length");
+            }
+            let val_len = buf.get_u8() as usize;
+            if buf.remaining() < val_len {
+                return Err("Insufficient data for attribute value");
+            }
             let value = String::from_utf8(buf.split_to(val_len).to_vec())
                 .map_err(|_| "Invalid UTF-8 in attribute value")?;
             attributes.push((key, value));

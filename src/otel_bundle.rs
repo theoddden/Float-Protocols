@@ -121,8 +121,8 @@ impl TelemetryBundle {
         // Compression type (1 byte)
         buf.put_u8(self.compression_type as u8);
 
-        // Has compressed data flag (1 byte)
-        let has_data = self.compressed_data.is_some();
+        // Has data flag (1 byte)
+        let has_data = self.compressed_data.is_some() || !self.spans.is_empty();
         buf.put_u8(if has_data { 1 } else { 0 });
 
         if let Some(ref data) = self.compressed_data {
@@ -300,6 +300,6 @@ mod tests {
         let decoded = TelemetryBundle::decode(&encoded).unwrap();
 
         assert_eq!(decoded.span_count(), 10);
-        assert!(decoded.compressed_data.is_some());
+        assert!(decoded.compressed_data.is_none()); // Data was decompressed
     }
 }
