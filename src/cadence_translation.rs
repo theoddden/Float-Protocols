@@ -73,7 +73,7 @@ struct RateLimiter {
 impl RateLimiter {
     fn new(min_interval: Duration) -> Self {
         Self {
-            last_sent: Instant::now(),
+            last_sent: Instant::now() - min_interval, // Allow first message immediately
             min_interval,
             messages_since_last: 0,
         }
