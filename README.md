@@ -2,6 +2,8 @@
 
 **1.1MB binary** - Ultra-lightweight, 100% Rust, async protocol-translation bridge for dead zone communication systems.
 
+**STAR THE REPO, IT'S A HUGE HELP:**
+
 ## Overview
 
 Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to AST SpaceMobile's future direct-to-cell network that is partly launched. Users will bring their own ASTS account details for authentication. The system integrates with telemetry for accurate ping monitoring.
