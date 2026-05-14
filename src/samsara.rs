@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn test_samsara_parse() {
-        let data = b"test samsara message";
+        let data = b"test samsara message with enough bytes to pass";
         let msg = SamsaraMessage::parse(data);
         assert!(msg.is_some());
     }
