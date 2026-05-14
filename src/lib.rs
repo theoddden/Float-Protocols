@@ -54,7 +54,7 @@ pub use metrics::Metrics;
 pub use otel_bundle::{CompressionType, TelemetryBundle};
 pub use otel_compact_span::{CompactSpan, SpanStatus};
 pub use otel_converter::{OtlpExportRequest, OtlpSpan, OtlpStatus};
-pub use otel_reconciler::{BitemporalRecord, BitemporalReconciler, ReconciliationStats};
+pub use otel_reconciler::{BitemporalReconciler, BitemporalRecord, ReconciliationStats};
 pub use protocol::{Message, Protocol};
 pub use reliability::{CircuitBreaker, RetryPolicy};
 pub use samsara::SamsaraMessage;

@@ -1,11 +1,11 @@
 //! OTLP Converter for Mandala Collector
-//! 
+//!
 //! This module converts compact spans to OTLP format for data warehouse ingestion.
 //! Preserves bi-temporal attributes (t_event, t_system) for reconciliation.
 
-use bytes::Bytes;
-use crate::otel_compact_span::{CompactSpan, SpanStatus};
 use crate::otel_bundle::TelemetryBundle;
+use crate::otel_compact_span::{CompactSpan, SpanStatus};
+use bytes::Bytes;
 
 /// OTLP span representation
 #[derive(Debug, Clone)]
@@ -62,11 +62,11 @@ impl OtlpSpan {
         attributes.push(("t_event".to_string(), span.t_event.to_string()));
         attributes.push(("t_system".to_string(), span.t_system.to_string()));
         attributes.push(("sensor_id".to_string(), span.sensor_id.clone()));
-        
+
         // Calculate spread
         let spread_ms = span.t_system - span.t_event;
         attributes.push(("spread_ms".to_string(), spread_ms.to_string()));
-        
+
         // Add custom attributes
         for (key, value) in &span.attributes {
             attributes.push((key.clone(), value.clone()));
@@ -93,32 +93,56 @@ impl OtlpSpan {
     /// Convert to JSON representation (for downstream OTLP exporters)
     pub fn to_json(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
-        
-        obj.insert("traceId".to_string(), serde_json::Value::String(self.trace_id.clone()));
-        obj.insert("spanId".to_string(), serde_json::Value::String(self.span_id.clone()));
-        
+
+        obj.insert(
+            "traceId".to_string(),
+            serde_json::Value::String(self.trace_id.clone()),
+        );
+        obj.insert(
+            "spanId".to_string(),
+            serde_json::Value::String(self.span_id.clone()),
+        );
+
         if let Some(ref parent) = self.parent_span_id {
-            obj.insert("parentSpanId".to_string(), serde_json::Value::String(parent.clone()));
+            obj.insert(
+                "parentSpanId".to_string(),
+                serde_json::Value::String(parent.clone()),
+            );
         }
-        
-        obj.insert("name".to_string(), serde_json::Value::String(self.name.clone()));
-        obj.insert("startTimeUnixNano".to_string(), serde_json::Value::Number(self.start_time_unix_nano.into()));
-        obj.insert("endTimeUnixNano".to_string(), serde_json::Value::Number(self.end_time_unix_nano.into()));
-        
+
+        obj.insert(
+            "name".to_string(),
+            serde_json::Value::String(self.name.clone()),
+        );
+        obj.insert(
+            "startTimeUnixNano".to_string(),
+            serde_json::Value::Number(self.start_time_unix_nano.into()),
+        );
+        obj.insert(
+            "endTimeUnixNano".to_string(),
+            serde_json::Value::Number(self.end_time_unix_nano.into()),
+        );
+
         let status_str = match self.status {
             OtlpStatus::Unset => "STATUS_UNSET",
             OtlpStatus::Ok => "STATUS_OK",
             OtlpStatus::Error => "STATUS_ERROR",
         };
-        obj.insert("status".to_string(), serde_json::Value::String(status_str.to_string()));
-        
+        obj.insert(
+            "status".to_string(),
+            serde_json::Value::String(status_str.to_string()),
+        );
+
         // Attributes
         let mut attrs_map = serde_json::Map::new();
         for (key, value) in &self.attributes {
             attrs_map.insert(key.clone(), serde_json::Value::String(value.clone()));
         }
-        obj.insert("attributes".to_string(), serde_json::Value::Object(attrs_map));
-        
+        obj.insert(
+            "attributes".to_string(),
+            serde_json::Value::Object(attrs_map),
+        );
+
         serde_json::Value::Object(obj)
     }
 }
@@ -133,7 +157,11 @@ impl OtlpExportRequest {
     }
 
     /// Add resource attribute
-    pub fn with_resource_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn with_resource_attribute(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.resource_attributes.push((key.into(), value.into()));
         self
     }
@@ -147,74 +175,81 @@ impl OtlpExportRequest {
     /// Convert from telemetry bundle
     pub fn from_bundle(bundle: &TelemetryBundle) -> Self {
         let mut request = Self::new();
-        
+
         // Add bundle-level resource attributes
         request = request
             .with_resource_attribute("bundle.sequence_number", bundle.sequence_number.to_string())
             .with_resource_attribute("bundle.timestamp", bundle.batch_timestamp.to_string())
-            .with_resource_attribute("bundle.compression", format!("{:?}", bundle.compression_type));
-        
+            .with_resource_attribute(
+                "bundle.compression",
+                format!("{:?}", bundle.compression_type),
+            );
+
         // Convert all spans
         for span in &bundle.spans {
             request = request.with_span(OtlpSpan::from_compact(span));
         }
-        
+
         request
     }
 
     /// Convert to JSON representation
     pub fn to_json(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
-        
+
         // Resource attributes
         let mut resource_attrs = serde_json::Map::new();
         for (key, value) in &self.resource_attributes {
             resource_attrs.insert(key.clone(), serde_json::Value::String(value.clone()));
         }
-        obj.insert("resource".to_string(), serde_json::Value::Object(resource_attrs.clone()));
-        
+        obj.insert(
+            "resource".to_string(),
+            serde_json::Value::Object(resource_attrs.clone()),
+        );
+
         // Spans
         let spans_array: Vec<serde_json::Value> = self.spans.iter().map(|s| s.to_json()).collect();
-        obj.insert("resourceSpans".to_string(), serde_json::Value::Array(vec![
-            serde_json::json!({
+        obj.insert(
+            "resourceSpans".to_string(),
+            serde_json::Value::Array(vec![serde_json::json!({
                 "resource": resource_attrs,
                 "scopeSpans": [{
                     "spans": spans_array
                 }]
-            })
-        ]));
-        
+            })]),
+        );
+
         serde_json::Value::Object(obj)
     }
 
     /// Convert to OTLP binary format (simplified protobuf-like encoding)
     pub fn to_binary(&self) -> Bytes {
         use bytes::BufMut;
-        
+
         let mut buf = bytes::BytesMut::new();
-        
+
         // Resource attributes count
         buf.put_u32(self.resource_attributes.len() as u32);
-        
+
         for (key, value) in &self.resource_attributes {
             buf.put_u32(key.len() as u32);
             buf.put_slice(key.as_bytes());
             buf.put_u32(value.len() as u32);
             buf.put_slice(value.as_bytes());
         }
-        
+
         // Spans count
         buf.put_u32(self.spans.len() as u32);
-        
+
         for span in &self.spans {
             // Trace ID (16 bytes)
             let trace_id_bytes = hex::decode(&span.trace_id).unwrap_or_default();
             buf.put_slice(&trace_id_bytes);
-            
+
             // Span ID (8 bytes)
             let span_id_bytes = hex::decode(&span.span_id).unwrap_or_default();
             buf.put_slice(&span_id_bytes);
-            
+
             // Parent span ID (8 bytes or none)
             if let Some(ref parent) = span.parent_span_id {
                 buf.put_u8(1);
@@ -223,22 +258,22 @@ impl OtlpExportRequest {
             } else {
                 buf.put_u8(0);
             }
-            
+
             // Name
             buf.put_u32(span.name.len() as u32);
             buf.put_slice(span.name.as_bytes());
-            
+
             // Times
             buf.put_u64(span.start_time_unix_nano);
             buf.put_u64(span.end_time_unix_nano);
-            
+
             // Status
             buf.put_u8(match span.status {
                 OtlpStatus::Unset => 0,
                 OtlpStatus::Ok => 1,
                 OtlpStatus::Error => 2,
             });
-            
+
             // Attributes
             buf.put_u32(span.attributes.len() as u32);
             for (key, value) in &span.attributes {
@@ -248,7 +283,7 @@ impl OtlpExportRequest {
                 buf.put_slice(value.as_bytes());
             }
         }
-        
+
         buf.freeze()
     }
 }
@@ -269,13 +304,13 @@ mod tests {
             .with_t_event(1000)
             .with_t_system(1500)
             .with_attribute("temperature", "25.5");
-        
+
         let otlp = OtlpSpan::from_compact(&compact);
-        
+
         assert_eq!(otlp.trace_id, hex::encode([1u8; 16]));
         assert_eq!(otlp.span_id, hex::encode([2u8; 8]));
         assert_eq!(otlp.name, "sensor.read");
-        
+
         // Check bi-temporal attributes
         let attrs: std::collections::HashMap<_, _> = otlp.attributes.iter().cloned().collect();
         assert_eq!(attrs.get("t_event"), Some(&"1000".to_string()));
@@ -286,19 +321,27 @@ mod tests {
     #[test]
     fn test_bundle_to_export_request() {
         let mut bundle = TelemetryBundle::new(1);
-        bundle.add_span(CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001"));
-        
+        bundle.add_span(CompactSpan::new(
+            [1u8; 16],
+            [2u8; 8],
+            "sensor.read",
+            "sensor-001",
+        ));
+
         let request = OtlpExportRequest::from_bundle(&bundle);
-        
+
         assert_eq!(request.spans.len(), 1);
-        assert!(request.resource_attributes.iter().any(|(k, _)| k == "bundle.sequence_number"));
+        assert!(request
+            .resource_attributes
+            .iter()
+            .any(|(k, _)| k == "bundle.sequence_number"));
     }
 
     #[test]
     fn test_otlp_json_serialization() {
         let compact = CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001");
         let otlp = OtlpSpan::from_compact(&compact);
-        
+
         let json = otlp.to_json();
         assert!(json.is_object());
         assert_eq!(json["name"], "sensor.read");

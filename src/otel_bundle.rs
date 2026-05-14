@@ -1,11 +1,11 @@
 //! OTel Bundle implementation for ASTS transport
-//! 
+//!
 //! This module bundles compact spans into ASTS protobuf format for satellite transmission.
 //! Supports compression (zstd) to minimize bandwidth usage.
 
+use crate::otel_compact_span::CompactSpan;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use zstd;
-use crate::otel_compact_span::CompactSpan;
 
 /// Compression type for bundle
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +96,7 @@ impl TelemetryBundle {
                 use flate2::write::GzEncoder;
                 use flate2::Compression;
                 use std::io::Write;
-                
+
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level as u32));
                 encoder.write_all(&raw_data)?;
                 let compressed = encoder.finish()?;
@@ -111,20 +111,20 @@ impl TelemetryBundle {
     /// Format: [seq:8][batch_ts:8][comp_type:1][has_data:1][data_len:4][data:var]
     pub fn encode(&self) -> Bytes {
         let mut buf = BytesMut::new();
-        
+
         // Sequence number (8 bytes)
         buf.put_u64(self.sequence_number);
-        
+
         // Batch timestamp (8 bytes, signed)
         buf.put_i64(self.batch_timestamp);
-        
+
         // Compression type (1 byte)
         buf.put_u8(self.compression_type as u8);
-        
+
         // Has compressed data flag (1 byte)
         let has_data = self.compressed_data.is_some();
         buf.put_u8(if has_data { 1 } else { 0 });
-        
+
         if let Some(ref data) = self.compressed_data {
             // Data length (4 bytes)
             buf.put_u32(data.len() as u32);
@@ -144,24 +144,24 @@ impl TelemetryBundle {
             // No data
             buf.put_u32(0);
         }
-        
+
         buf.freeze()
     }
 
     /// Decode bundle from binary format
     pub fn decode(data: &[u8]) -> Result<Self, &'static str> {
         let mut buf = Bytes::copy_from_slice(data);
-        
+
         if buf.remaining() < 8 + 8 + 1 + 1 + 4 {
             return Err("Insufficient data for bundle header");
         }
-        
+
         // Sequence number
         let sequence_number = buf.get_u64();
-        
+
         // Batch timestamp
         let batch_timestamp = buf.get_i64();
-        
+
         // Compression type
         let compression_type_byte = buf.get_u8();
         let compression_type = match compression_type_byte {
@@ -170,17 +170,17 @@ impl TelemetryBundle {
             2 => CompressionType::Gzip,
             _ => return Err("Invalid compression type"),
         };
-        
+
         // Has compressed data flag
         let has_data = buf.get_u8() == 1;
-        
+
         // Data length
         let data_len = buf.get_u32() as usize;
-        
+
         if buf.remaining() < data_len {
             return Err("Insufficient data for bundle payload");
         }
-        
+
         let mut bundle = Self {
             sequence_number,
             batch_timestamp,
@@ -188,10 +188,10 @@ impl TelemetryBundle {
             spans: Vec::new(),
             compressed_data: None,
         };
-        
+
         if has_data {
             let data = buf.split_to(data_len);
-            
+
             match compression_type {
                 CompressionType::None => {
                     // Decode spans directly
@@ -208,8 +208,8 @@ impl TelemetryBundle {
                 }
                 CompressionType::Zstd => {
                     // Decompress with zstd
-                    let decompressed = zstd::decode_all(&data[..])
-                        .map_err(|_| "Zstd decompression failed")?;
+                    let decompressed =
+                        zstd::decode_all(&data[..]).map_err(|_| "Zstd decompression failed")?;
                     let mut span_buf = Bytes::from(decompressed);
                     while span_buf.remaining() >= 4 {
                         let span_len = span_buf.get_u32() as usize;
@@ -225,12 +225,13 @@ impl TelemetryBundle {
                     // Decompress with flate2
                     use flate2::read::GzDecoder;
                     use std::io::Read;
-                    
+
                     let mut decoder = GzDecoder::new(&data[..]);
                     let mut decompressed = Vec::new();
-                    decoder.read_to_end(&mut decompressed)
+                    decoder
+                        .read_to_end(&mut decompressed)
                         .map_err(|_| "Gzip decompression failed")?;
-                    
+
                     let mut span_buf = Bytes::from(decompressed);
                     while span_buf.remaining() >= 4 {
                         let span_len = span_buf.get_u32() as usize;
@@ -244,7 +245,7 @@ impl TelemetryBundle {
                 }
             }
         }
-        
+
         Ok(bundle)
     }
 
@@ -269,16 +270,16 @@ mod tests {
     #[test]
     fn test_bundle_encode_decode() {
         let mut bundle = TelemetryBundle::new(1);
-        
+
         let span1 = CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001");
         let span2 = CompactSpan::new([3u8; 16], [4u8; 8], "sensor.read", "sensor-002");
-        
+
         bundle.add_span(span1);
         bundle.add_span(span2);
-        
+
         let encoded = bundle.encode();
         let decoded = TelemetryBundle::decode(&encoded).unwrap();
-        
+
         assert_eq!(decoded.sequence_number, bundle.sequence_number);
         assert_eq!(decoded.span_count(), 2);
     }
@@ -286,18 +287,18 @@ mod tests {
     #[test]
     fn test_bundle_zstd_compression() {
         let mut bundle = TelemetryBundle::new(1).with_compression(CompressionType::Zstd);
-        
+
         for i in 0..10 {
             let span = CompactSpan::new([i as u8; 16], [i as u8; 8], "sensor.read", "sensor-001")
                 .with_attribute("temperature", &format!("{}", i * 10));
             bundle.add_span(span);
         }
-        
+
         bundle.compress(3).unwrap();
-        
+
         let encoded = bundle.encode();
         let decoded = TelemetryBundle::decode(&encoded).unwrap();
-        
+
         assert_eq!(decoded.span_count(), 10);
         assert!(decoded.compressed_data.is_some());
     }

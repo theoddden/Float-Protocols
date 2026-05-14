@@ -1,5 +1,5 @@
 //! Compact Span implementation for OTel-over-Satellite architecture
-//! 
+//!
 //! This module provides ultra-lightweight span generation for satellite telemetry,
 //! optimized for bandwidth-constrained links. Spans are 50-100 bytes vs 1-2KB for standard OTLP.
 
@@ -54,7 +54,7 @@ impl CompactSpan {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        
+
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -123,38 +123,38 @@ impl CompactSpan {
     /// Format: [trace_id:16][span_id:8][parent_id:8][name_len:1][name:var][start:8][end:8][t_event:8][t_system:8][sensor_len:1][sensor:var][attr_count:1][attrs:var][status:1]
     pub fn encode(&self) -> Bytes {
         let mut buf = BytesMut::new();
-        
+
         // Trace ID (16 bytes)
         buf.put_slice(&self.trace_id);
-        
+
         // Span ID (8 bytes)
         buf.put_slice(&self.span_id);
-        
+
         // Parent span ID (8 bytes)
         buf.put_slice(&self.parent_span_id);
-        
+
         // Name (1 byte length + var bytes)
         let name_bytes = self.name.as_bytes();
         buf.put_u8(name_bytes.len() as u8);
         buf.put_slice(name_bytes);
-        
+
         // Start time (8 bytes)
         buf.put_u64(self.start_time_unix_nano);
-        
+
         // End time (8 bytes)
         buf.put_u64(self.end_time_unix_nano);
-        
+
         // t_event (8 bytes, signed)
         buf.put_i64(self.t_event);
-        
+
         // t_system (8 bytes, signed)
         buf.put_i64(self.t_system);
-        
+
         // Sensor ID (1 byte length + var bytes)
         let sensor_bytes = self.sensor_id.as_bytes();
         buf.put_u8(sensor_bytes.len() as u8);
         buf.put_slice(sensor_bytes);
-        
+
         // Attributes (1 byte count + var)
         buf.put_u8(self.attributes.len() as u8);
         for (key, value) in &self.attributes {
@@ -165,33 +165,33 @@ impl CompactSpan {
             buf.put_u8(val_bytes.len() as u8);
             buf.put_slice(val_bytes);
         }
-        
+
         // Status (1 byte)
         buf.put_u8(self.status as u8);
-        
+
         buf.freeze()
     }
 
     /// Decode compact span from binary format
     pub fn decode(data: &[u8]) -> Result<Self, &'static str> {
         let mut buf = Bytes::copy_from_slice(data);
-        
+
         if buf.remaining() < 16 + 8 + 8 + 1 + 8 + 8 + 8 + 8 + 1 + 1 + 1 {
             return Err("Insufficient data for compact span");
         }
-        
+
         // Trace ID
         let mut trace_id = [0u8; 16];
         buf.copy_to_slice(&mut trace_id);
-        
+
         // Span ID
         let mut span_id = [0u8; 8];
         buf.copy_to_slice(&mut span_id);
-        
+
         // Parent span ID
         let mut parent_span_id = [0u8; 8];
         buf.copy_to_slice(&mut parent_span_id);
-        
+
         // Name
         let name_len = buf.get_u8() as usize;
         if buf.remaining() < name_len {
@@ -199,19 +199,19 @@ impl CompactSpan {
         }
         let name = String::from_utf8(buf.split_to(name_len).to_vec())
             .map_err(|_| "Invalid UTF-8 in name")?;
-        
+
         // Start time
         let start_time_unix_nano = buf.get_u64();
-        
+
         // End time
         let end_time_unix_nano = buf.get_u64();
-        
+
         // t_event
         let t_event = buf.get_i64();
-        
+
         // t_system
         let t_system = buf.get_i64();
-        
+
         // Sensor ID
         let sensor_len = buf.get_u8() as usize;
         if buf.remaining() < sensor_len {
@@ -219,7 +219,7 @@ impl CompactSpan {
         }
         let sensor_id = String::from_utf8(buf.split_to(sensor_len).to_vec())
             .map_err(|_| "Invalid UTF-8 in sensor_id")?;
-        
+
         // Attributes
         let attr_count = buf.get_u8() as usize;
         let mut attributes = Vec::with_capacity(attr_count);
@@ -238,7 +238,7 @@ impl CompactSpan {
                 .map_err(|_| "Invalid UTF-8 in attribute value")?;
             attributes.push((key, value));
         }
-        
+
         // Status
         let status_byte = buf.get_u8();
         let status = match status_byte {
@@ -246,7 +246,7 @@ impl CompactSpan {
             1 => SpanStatus::Error,
             _ => return Err("Invalid status byte"),
         };
-        
+
         Ok(Self {
             trace_id,
             span_id,
@@ -281,16 +281,11 @@ mod tests {
 
     #[test]
     fn test_encode_decode_roundtrip() {
-        let span = CompactSpan::new(
-            [1u8; 16],
-            [2u8; 8],
-            "sensor.read",
-            "sensor-001",
-        )
-        .with_t_event(1000)
-        .with_t_system(1500)
-        .with_attribute("temperature", "25.5")
-        .with_status(SpanStatus::Ok);
+        let span = CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001")
+            .with_t_event(1000)
+            .with_t_system(1500)
+            .with_attribute("temperature", "25.5")
+            .with_status(SpanStatus::Ok);
 
         let encoded = span.encode();
         let decoded = CompactSpan::decode(&encoded).unwrap();
@@ -307,14 +302,9 @@ mod tests {
 
     #[test]
     fn test_spread_calculation() {
-        let span = CompactSpan::new(
-            [1u8; 16],
-            [2u8; 8],
-            "sensor.read",
-            "sensor-001",
-        )
-        .with_t_event(1000)
-        .with_t_system(1500);
+        let span = CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001")
+            .with_t_event(1000)
+            .with_t_system(1500);
 
         assert_eq!(span.spread_ms(), 500);
     }
