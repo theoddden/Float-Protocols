@@ -2,8 +2,6 @@
 //!
 //! HF/VHF radio with codec translation for digital cellular transmission.
 
-use bytes::Bytes;
-
 #[derive(Debug, Clone)]
 pub struct HFVHFMessage {
     pub frequency_khz: u32,
