@@ -157,6 +157,79 @@ Expected performance:
 - Zero-copy translation: <200ns
 - Full hot path: <500ns
 
+## Critical Problems and Solutions
+
+Float Protocols addresses several critical problems in protocol translation:
+
+### 1. Slice-of-Death (Memory Safety)
+
+**Problem**: Zero-allocation shifts burden to lifetime management. If Translator returns a slice tied to a temporary buffer, DX suffers.
+
+**Solution**: Hybrid translation layer providing both zero-allocation and lifetime-safe paths:
+
+```rust
+use float_protocols::{HybridTranslator, SafeTranslationResult};
+
+// Lifetime-safe translation (returns owned Bytes)
+let mut translator = HybridTranslator::new(8, 2048);
+let result = translator.translate_safe(&iridium_msg).unwrap();
+// result.data is owned Bytes, no lifetime issues
+```
+
+### 2. Clock Drift in Asynchronous Bursts
+
+**Problem**: Device internal clocks may drift from ASTS network time during dead zone bursts, causing logically consistent but factually wrong timestamps.
+
+**Solution**: Clock reconciliation algorithm with offset tracking:
+
+```rust
+use float_protocols::{ClockReconciler, ClockOffset, NetworkTimeSource};
+
+let mut reconciler = ClockReconciler::new(10, Duration::from_secs(300), NetworkTimeSource::ASTS);
+
+// Register device clock offset
+let offset = ClockOffset::new(device_id, 1000, 0.9);
+reconciler.register_offset(offset);
+
+// Reconcile device timestamp to network time
+let network_time = reconciler.reconcile(device_id, device_timestamp_ms).unwrap();
+```
+
+### 3. Protobuf Size Trap
+
+**Problem**: Fixed-size stack buffers may overflow with unexpected payloads from legacy systems. Hard-coding buffer sizes breaks with protocol updates.
+
+**Solution**: Dynamic buffer with bounds checking and graceful degradation:
+
+```rust
+use float_protocols::{DynamicBuffer, DynamicBufferPool};
+
+let mut buffer = DynamicBuffer::new(10, 10000).unwrap();
+buffer.write(&large_payload)?; // Grows automatically up to max_capacity
+```
+
+### 4. Semantic Drift Between Protocols
+
+**Problem**: Iridium is high-latency/low-bandwidth (heartbeat once per hour), ASTS is low-latency/high-bandwidth (heartbeat every 5 seconds). Managing differing cadences is complex.
+
+**Solution**: Cadence translation layer with configurable rules:
+
+```rust
+use float_protocols::{CadenceTranslator, CadenceRule, MessageCadence, CadenceTransformation};
+
+let mut translator = CadenceTranslator::new();
+translator.add_rule(CadenceRule {
+    source_protocol: Protocol::IridiumSBD,
+    source_cadence: MessageCadence::OncePerHour,
+    target_protocol: Protocol::ASTSpaceMobile,
+    target_cadence: MessageCadence::Every5Seconds,
+    message_type: "heartbeat".to_string(),
+    transformation: CadenceTransformation::Duplicate { max_duplicates: 720 },
+});
+
+let action = translator.translate_message("heartbeat", Protocol::IridiumSBD, Priority::Operational);
+```
+
 ## Bi-Temporal Logic
 
 Float Protocols implements bi-temporal modeling for high-end insurance underwriting and global trade compliance:

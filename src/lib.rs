@@ -25,6 +25,10 @@ pub mod snapshot;
 pub mod bitemporal;
 pub mod iridium_sbd;
 pub mod asts_protobuf;
+pub mod lifetime_safe;
+pub mod clock_reconciliation;
+pub mod dynamic_buffer;
+pub mod cadence_translation;
 
 pub use protocol::{Protocol, Message};
 pub use translator::Translator;
@@ -38,3 +42,7 @@ pub use bitemporal::{BiTemporalStore, BiTemporalQuery, QueryTime, SpreadStats};
 pub use iridium_sbd::IridiumSBDMessage;
 pub use asts_protobuf::{ASTSProtobufMessage, ZeroCopyTranslator};
 pub use translator::BufferPool;
+pub use lifetime_safe::{SafeTranslationResult, TranslationArena, HybridTranslator};
+pub use clock_reconciliation::{ClockReconciler, ClockOffset, NetworkTimeSource};
+pub use dynamic_buffer::{DynamicBuffer, DynamicBufferPool, BufferError};
+pub use cadence_translation::{CadenceTranslator, CadenceRule, MessageCadence, TranslationAction};
