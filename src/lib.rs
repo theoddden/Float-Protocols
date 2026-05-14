@@ -52,5 +52,5 @@ pub use reliability::{CircuitBreaker, RetryPolicy};
 pub use samsara::SamsaraMessage;
 pub use sharding::{ShardId, ShardManager};
 pub use snapshot::{Snapshot, SnapshotManager};
-pub use translator::{BufferPool, Translator, translate_iridium_to_asts_sync};
+pub use translator::{translate_iridium_to_asts_sync, BufferPool, Translator};
 pub use vsat::VSATMessage;

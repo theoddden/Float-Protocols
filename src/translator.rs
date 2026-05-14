@@ -74,8 +74,8 @@ impl Translator {
         output_buffer: &mut [u8],
     ) -> Result<usize, TranslateError> {
         let mut translator = ZeroCopyTranslator::new();
-        let iridium_msg = IridiumSBDMessage::parse(iridium_data)
-            .ok_or(TranslateError::InvalidProtocol)?;
+        let iridium_msg =
+            IridiumSBDMessage::parse(iridium_data).ok_or(TranslateError::InvalidProtocol)?;
 
         translator
             .translate(&iridium_msg, output_buffer)
