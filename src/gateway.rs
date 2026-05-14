@@ -7,12 +7,11 @@ use crate::batcher::AsyncBatcher;
 use crate::bitemporal::{BiTemporalStore, QueryTime};
 use crate::cache::AsyncCache;
 use crate::metrics::Metrics;
-use crate::protocol::{Message, Priority, Protocol};
+use crate::protocol::{Message, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
 use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::Translator;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -135,7 +134,7 @@ impl Gateway {
             .circuit_breaker
             .call(async {
                 self.translator.send(message.clone()).await;
-                Ok::<(), Box<dyn std::error::Error>>(())
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
             .await;
 

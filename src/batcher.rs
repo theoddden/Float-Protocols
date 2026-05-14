@@ -72,7 +72,7 @@ impl AsyncBatcher {
             max_batch_size,
             batch_timeout,
             input_tx,
-            output_tx,
+            output_rx,
         }
     }
 
