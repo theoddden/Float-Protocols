@@ -93,13 +93,10 @@ impl HybridTranslator {
         &mut self,
         iridium_msg: &crate::iridium_sbd::IridiumSBDMessage,
     ) -> Option<SafeTranslationResult> {
-        let buffer_index = self.arena.next_index;
-        let buffer = self.arena.get_buffer();
-        let size = {
-            let buffer_slice = &mut *buffer;
-            self.translate_zero_alloc(iridium_msg, buffer_slice)?
-        };
-        let data = self.arena.clone_to_bytes_at(buffer_index, size);
+        // Use local buffer to avoid borrow checker issues
+        let mut local_buffer = vec![0u8; 2048];
+        let size = self.translate_zero_alloc(iridium_msg, &mut local_buffer)?;
+        let data = Bytes::copy_from_slice(&local_buffer[..size]);
         Some(SafeTranslationResult::new(data))
     }
 }
