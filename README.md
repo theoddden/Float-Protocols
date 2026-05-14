@@ -41,6 +41,72 @@ Float Protocols is a primitive that bridges existing dead zone communication sys
 - **Reliability**: Circuit breakers, retry policies, and health checks for 99.9% uptime
 - **Telemetry Integration**: Accurate ping monitoring and metrics
 - **BYO Authentication**: Users bring their own ASTS account details
+- **OTel-over-Satellite**: OpenTelemetry span collection and transmission via ASTS protobuf with compression
+
+## OTel-over-Satellite
+
+Float Protocols includes OpenTelemetry (OTel) support for distributed tracing over satellite networks:
+
+### Modules
+
+- **otel_compact_span**: Compact span representation with fixed-size buffers for satellite transmission
+  - Bi-temporal timestamps (t_event, t_system) for compliance
+  - Efficient attribute encoding (key-value pairs)
+  - Status tracking (Ok, Error)
+
+- **otel_bundle**: ASTS protobuf transport bundles with compression
+  - Sequence numbering for ordering
+  - Batch timestamps for time windows
+  - Compression support (zstd, gzip) for bandwidth optimization
+  - Automatic span encoding/decoding
+
+- **otel_converter**: OTLP conversion for Mandala collector integration
+  - Transforms compact spans to standard OTLP export requests
+  - JSON serialization for HTTP transport
+  - Resource attribute mapping
+
+- **otel_reconciler**: Bi-temporal reconciliation for OTel spans
+  - Ingest spans with t_event/t_system tracking
+  - Retroactive corrections for late-arriving data
+  - System belief queries at specific timestamps
+  - Spread statistics for monitoring
+
+### Usage
+
+```rust
+use float_protocols::otel_compact_span::CompactSpan;
+use float_protocols::otel_bundle::{TelemetryBundle, CompressionType};
+
+// Create a compact span
+let span = CompactSpan::new([1u8; 16], [2u8; 8], "sensor.read", "sensor-001")
+    .with_t_event(1000)
+    .with_t_system(1500)
+    .with_attribute("temperature", "25.5")
+    .with_status(float_protocols::otel_compact_span::SpanStatus::Ok);
+
+// Create a bundle and add spans
+let mut bundle = TelemetryBundle::new(1);
+bundle.add_span(span);
+
+// Compress with zstd
+bundle.with_compression(CompressionType::Zstd);
+bundle.compress(3).unwrap();
+
+// Encode for transmission
+let encoded = bundle.encode();
+
+// Decode on receiver
+let decoded = TelemetryBundle::decode(&encoded).unwrap();
+assert_eq!(decoded.span_count(), 1);
+```
+
+### Design Principles
+
+- **Compact Binary Format**: Minimal overhead for satellite bandwidth constraints
+- **Compression**: zstd and gzip support for bandwidth optimization
+- **Bi-Temporal**: t_event/t_system for compliance with insurance and trade requirements
+- **Zero-Allocation**: Stack-allocated buffers where possible
+- **Async-First**: Tokio-based for low-latency processing
 
 ## Installation
 
