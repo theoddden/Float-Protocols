@@ -69,10 +69,10 @@ impl AsyncBatcher {
 
         Self {
             _buffer: Vec::new(),
-            _max_batch_size,
-            _batch_timeout,
+            _max_batch_size: max_batch_size,
+            _batch_timeout: batch_timeout,
             input_tx,
-            _output_rx,
+            _output_rx: output_rx,
         }
     }
 
