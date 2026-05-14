@@ -69,7 +69,7 @@ impl BitemporalReconciler {
 
         self.records
             .entry(entity_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(record);
     }
 
@@ -210,7 +210,7 @@ impl BitemporalReconciler {
 
         self.records
             .entry(entity_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(record);
     }
 

@@ -290,7 +290,7 @@ mod tests {
 
         for i in 0..10 {
             let span = CompactSpan::new([i as u8; 16], [i as u8; 8], "sensor.read", "sensor-001")
-                .with_attribute("temperature", &format!("{}", i * 10));
+                .with_attribute("temperature", format!("{}", i * 10));
             bundle.add_span(span);
         }
 
