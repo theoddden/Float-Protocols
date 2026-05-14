@@ -10,7 +10,7 @@ Float Protocols bridges existing dead zone communication systems (Iridium, Inmar
 - Async-first architecture for low latency
 - 99.9% uptime with circuit breakers, retries, and health checks
 - Ultra-lightweight: runs on pre-existing RAM on local devices
-- Zero-allocation where possible using heapless
+- Zero-allocation where possible using stack-allocated buffers
 - Fixed-size buffers for memory efficiency
 - Memory sharding for immediate deadzone uplink (InferX pattern)
 - Snapshotting for fast uplink building
@@ -132,30 +132,6 @@ let size = translator.translate(&iridium_msg, &mut output_buffer).unwrap();
 
 // Output buffer now contains ASTS Protobuf data
 ```
-
-### Buffer Pool
-
-For high-throughput scenarios, use the BufferPool for pre-allocated buffers:
-
-```rust
-use float_protocols::BufferPool;
-
-let mut buffer_pool = BufferPool::new(16); // 16 buffers of 2048 bytes each
-let buffer = buffer_pool.get_buffer(); // Get zero-allocation buffer
-```
-
-### Benchmarks
-
-Run benchmarks to verify zero-allocation performance:
-
-```bash
-cargo bench
-```
-
-Expected performance:
-- Iridium SBD parse: <100ns
-- Zero-copy translation: <200ns
-- Full hot path: <500ns
 
 ## Critical Problems and Solutions
 
@@ -330,7 +306,7 @@ cargo test
 ### Clippy
 
 ```bash
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ## License
