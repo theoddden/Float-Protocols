@@ -1,6 +1,6 @@
 # Float Protocols
 
-Ultra-lightweight async protocol translation bridge for dead zone communication systems.
+2MB async protocol-translation bridge for dead zone communication systems.
 
 ## Overview
 
