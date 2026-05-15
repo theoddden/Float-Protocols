@@ -1,6 +1,6 @@
 [package]
 name = "float_protocols"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Float Protocols Team"]
 description = "Float Protocols - Ultra-lightweight async protocol translation bridge for dead zone communication systems"

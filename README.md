@@ -36,7 +36,7 @@ Float Protocols is a primitive that bridges existing dead zone communication sys
 
 ## Features
 
-- **Zero-Allocation Hot Path**: Iridium SBD to ASTS Protobuf translation with NO heap allocations
+- **Zero-Allocation Hot Path**: Iridium SBD to ASTS Protobuf translation with NO heap allocations (extends battery life on solar/battery-powered edge devices)
 - **Protocol Translation**: Async translation between legacy protocols and AST SpaceMobile
 - **Bi-Temporal Logic**: Dual timestamps (t_event, t_system) for insurance underwriting and trade compliance
 - **Spread Calculation**: Deterministic mark between event time and system time for compliance
