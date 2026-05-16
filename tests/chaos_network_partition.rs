@@ -398,7 +398,7 @@ async fn test_network_partition_multi_protocol_isolation() {
     );
 
     // Simulate partition affecting only one protocol
-    let protocols = vec![
+    let protocols = [
         Protocol::IridiumSBD,
         Protocol::InmarsatC,
         Protocol::VSAT,

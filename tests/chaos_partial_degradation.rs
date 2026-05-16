@@ -126,7 +126,7 @@ async fn test_partial_degradation_one_protocol_fails() {
     );
 
     // Send messages from multiple protocols (one may fail)
-    let protocols = vec![
+    let protocols = [
         Protocol::IridiumSBD,
         Protocol::InmarsatC,
         Protocol::VSAT,
@@ -420,7 +420,7 @@ async fn test_partial_degradation_priority_preservation() {
     let shard_manager = gateway.shard_manager();
 
     // Send messages with different priorities under degradation
-    let priorities = vec![
+    let priorities = [
         Priority::Emergency,
         Priority::Operational,
         Priority::Diagnostic,

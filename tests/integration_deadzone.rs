@@ -272,7 +272,7 @@ async fn test_deadzone_snapshot_ttl_eviction() {
     // Trigger eviction
     snapshot_manager.clear_expired().await;
 
-    let snapshots_after = snapshot_manager
+    let _snapshots_after = snapshot_manager
         .get_protocol_snapshots(Protocol::IridiumSBD)
         .await;
     // TTL eviction is timing-dependent - skipped in CI

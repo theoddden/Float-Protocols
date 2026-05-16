@@ -316,7 +316,7 @@ async fn test_dependency_failure_with_high_priority_messages() {
     );
 
     // Send high priority messages while dependencies may fail
-    let priorities = vec![
+    let priorities = [
         Priority::Emergency,
         Priority::Operational,
         Priority::Diagnostic,
