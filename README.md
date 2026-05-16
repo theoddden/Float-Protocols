@@ -4,6 +4,21 @@
 
 **STAR THE REPO, IT'S A HUGE HELP:**
 
+## May 2026 Edition - v0.3.0
+
+**New: NIDD Protocol Support**
+- Full 3GPP TS 24.582 compliant Non-IP Data Delivery implementation for NTN NB-IoT
+- Eliminates 28-byte IP/UDP header overhead (56% reduction for small sensor messages)
+- Control-plane priority for emergency messages
+- QoS parameters for NTN optimization (Priority, Reliability, Delay Class, Coverage Enhancement)
+- Zero-allocation parsing using nom combinators
+- Future-proofing for 3GPP Rel-17/18 NTN NB-IoT standard
+
+**Improvements**
+- Enhanced chaos engineering test suite with network partition, dependency failure, and partial degradation tests
+- Improved CI/CD with automated formatting, clippy, and test checks
+- Fixed circuit breaker timing issues in network partition tests
+
 ## Overview
 
 Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to future satellite networks. Currently supports traditional satellite protocols with future-proofing for AST SpaceMobile's enterprise IoT APIs when released. The system integrates with telemetry for accurate ping monitoring.
