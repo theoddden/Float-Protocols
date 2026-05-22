@@ -16,7 +16,7 @@
 
 ## Overview
 
-Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to future satellite networks. Currently supports traditional satellite protocols with future-proofing for AST SpaceMobile's enterprise IoT APIs when released. The system integrates with telemetry for accurate ping monitoring.
+Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to future satellite networks. Currently supports traditional satellite protocols with future-proofing for AST SpaceMobile's and Iridium's NTN enterprise IoT APIs when released.
 
 ### Design Principles
 
