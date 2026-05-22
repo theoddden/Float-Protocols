@@ -2,7 +2,7 @@
 
 **1.1MB binary** - Ultra-lightweight, 100% Rust, async protocol-translation bridge for dead zone communication systems.
 
-**STAR THE REPO, IT'S A HUGE HELP:**
+**STAR THE REPO, IT'S A HUGE HELP**
 
 ## May 2026 Edition - v0.3.0
 
