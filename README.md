@@ -14,11 +14,6 @@
 - Zero-allocation parsing using nom combinators
 - Future-proofing for 3GPP Rel-17/18 NTN NB-IoT standard
 
-**Improvements**
-- Enhanced chaos engineering test suite with network partition, dependency failure, and partial degradation tests
-- Improved CI/CD with automated formatting, clippy, and test checks
-- Fixed circuit breaker timing issues in network partition tests
-
 ## Overview
 
 Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to future satellite networks. Currently supports traditional satellite protocols with future-proofing for AST SpaceMobile's enterprise IoT APIs when released. The system integrates with telemetry for accurate ping monitoring.
@@ -46,8 +41,9 @@ Float Protocols is a primitive that bridges existing dead zone communication sys
 ## Future Protocols
 
 - **AST SpaceMobile** - Direct-to-cell cellular format (future-proofing for enterprise IoT APIs)
+- **Iridium NTN***
 
-**Note**: AST SpaceMobile integration is future-proofing for when they release enterprise APIs. AST SpaceMobile has successfully tested IoT device connectivity (BeWhere Holdings, Oct 2025) and plans NB-IoT support. The ASTS Protobuf format is speculative and will be updated based on official API documentation when released.
+**Note**: AST SpaceMobile has successfully tested IoT device connectivity (BeWhere Holdings, Oct 2025) and plans NB-IoT support. The ASTS Protobuf format is speculative and will be updated based on official API documentation when released.
 
 ## Features
 
@@ -196,7 +192,6 @@ The spread between t_event and t_system is calculated as:
 ```
 spread_ms = t_system - t_event
 ```
-
 - **Positive spread**: Message was delayed (system learned about it after it happened)
 - **Negative spread**: Message from the future (system learned about it before it happened)
 - **Zero spread**: Real-time processing
