@@ -20,6 +20,7 @@ pub struct ShardId(pub u64);
 pub struct MemoryShard {
     _id: ShardId,
     tx: Sender<Message>,
+    #[allow(dead_code)]
     max_size: usize,
     last_access: Instant,
     is_deadzone_shard: bool, // Dedicated shard for deadzone uplink
@@ -270,16 +271,8 @@ impl ShardWorker {
         let shard_id = self.shard_id;
         let receiver = self.receiver;
         tokio::spawn(async move {
-            loop {
-                match receiver.recv() {
-                    Ok(message) => {
-                        callback(shard_id, message).await;
-                    }
-                    Err(_) => {
-                        // Channel closed, worker exits
-                        break;
-                    }
-                }
+            while let Ok(message) = receiver.recv() {
+                callback(shard_id, message).await;
             }
         });
     }

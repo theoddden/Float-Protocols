@@ -17,7 +17,7 @@ use crate::clock_reconciliation::{ClockReconciler, NetworkTimeSource};
 use crate::metrics::Metrics;
 use crate::protocol::{Message, Priority, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
-use crate::sharding::{ShardId, ShardManager, ShardWorker};
+use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::{Translator, TranslatorPool};
 use parking_lot::Mutex;
@@ -93,6 +93,7 @@ pub struct TelemetryConfig {
 }
 
 pub struct Gateway {
+    #[allow(dead_code)]
     translator_pool: Arc<TranslatorPool>,
     _batcher: AsyncBatcher,
     cache: AsyncCache,
@@ -205,6 +206,7 @@ impl Gateway {
 
     /// Process a message from a shard worker.
     /// Uses the TranslatorPool for parallel translation.
+    #[allow(dead_code)]
     async fn process_shard_message(&self, message: Message) {
         let start = Instant::now();
         let protocol = message.protocol;
