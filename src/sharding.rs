@@ -181,6 +181,7 @@ impl ShardManager {
     ///   - Bypass the 80% backpressure gate (already stale, dropping makes it worse)
     ///   - Bypass the 100ms push timeout (pre-allocated buffer, should be immediate)
     ///   - Bypass cadence rate limiting in the gateway (enforced by caller)
+    ///
     /// The goal is to drain the reconnect burst as fast as possible.
     pub async fn push_spread(&self, message: Message) -> Result<ShardId, ShardError> {
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
