@@ -13,6 +13,7 @@
 use bytes::Bytes;
 use float_protocols::gateway::{ASTSCredentials, Gateway, TelemetryConfig};
 use float_protocols::protocol::{Message, Priority, Protocol};
+use float_protocols::reliability::init_startup_time;
 
 #[cfg(not(unix))]
 use tokio::signal;
@@ -73,6 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     tracing::info!("Float Protocols starting up...");
+
+    // Initialize startup timestamp for circuit breaker recovery timeout
+    init_startup_time();
 
     // Validate environment variables
     validate_config()?;
@@ -147,11 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Graceful shutdown: drain in-flight messages with timeout
     tracing::info!("Draining in-flight messages (5s timeout)...");
-    let drain_result = tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
-        // Gateway will naturally drain as we drop it
-        // The timeout ensures we don't hang indefinitely
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    })
+    let drain_result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(5),
+        async {
+            // Gateway will naturally drain as we drop it
+            // The timeout ensures we don't hang indefinitely
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        },
+    )
     .await;
 
     match drain_result {

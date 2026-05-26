@@ -88,7 +88,7 @@ impl NIDDMessage {
     /// [pdu_type (1)][qos_priority (1)][reliability (1)][delay_class (1)]
     /// [coverage_enhancement (1)][length (2)][sequence (2)][payload (N)]
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < 8 {
+        if data.len() < 9 {
             return None;
         }
 

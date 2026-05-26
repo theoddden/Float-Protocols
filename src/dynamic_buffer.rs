@@ -177,7 +177,7 @@ impl DynamicBuffer {
             }
 
             self.ptr = None;
-            self.capacity = initial_capacity;
+            self.capacity = 0;
             self.size = 0;
         }
 

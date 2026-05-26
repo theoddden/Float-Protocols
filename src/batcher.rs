@@ -12,16 +12,13 @@ pub struct AsyncBatcher {
     _max_batch_size: usize,
     _batch_timeout: Duration,
     input_tx: mpsc::Sender<Message>,
-    batch_tx: mpsc::Sender<Vec<Message>>,
+    batch_rx: Option<mpsc::Receiver<Vec<Message>>>,
 }
 
 impl AsyncBatcher {
     pub fn new(max_batch_size: usize, batch_timeout: Duration, buffer_size: usize) -> Self {
         let (input_tx, mut input_rx) = mpsc::channel::<Message>(buffer_size);
-        let (output_tx, _output_rx) = mpsc::channel::<Vec<Message>>(buffer_size);
-
-        // Clone output_tx for the struct
-        let batch_tx = output_tx.clone();
+        let (output_tx, output_rx) = mpsc::channel::<Vec<Message>>(buffer_size);
 
         // Spawn async batching task
         tokio::spawn(async move {
@@ -75,7 +72,7 @@ impl AsyncBatcher {
             _max_batch_size: max_batch_size,
             _batch_timeout: batch_timeout,
             input_tx,
-            batch_tx,
+            batch_rx: Some(output_rx),
         }
     }
 
@@ -94,10 +91,10 @@ impl AsyncBatcher {
         self.input_tx.send(message).await
     }
 
-    /// Get a sender for receiving batches
-    /// Consumers should clone this and create their own receiver channel
-    pub fn batch_sender(&self) -> mpsc::Sender<Vec<Message>> {
-        self.batch_tx.clone()
+    /// Take the batch receiver to consume translated batches.
+    /// Can only be called once — subsequent calls return None.
+    pub fn take_batch_receiver(&mut self) -> Option<mpsc::Receiver<Vec<Message>>> {
+        self.batch_rx.take()
     }
 }
 

@@ -72,6 +72,7 @@ impl Translator {
             Protocol::HFVHF => Self::translate_hfvhf(message).await,
             Protocol::RockBLOCK => Self::translate_rockblock(message).await,
             Protocol::Samsara => Self::translate_samsara(message).await,
+            Protocol::NIDD => Ok(message), // NIDD payload passes through to ASTS as-is
             Protocol::ASTSpaceMobile => Ok(message), // Already in target format
         }
     }
@@ -131,43 +132,31 @@ impl Translator {
 
     // Protocol-specific decoders using nom for zero-copy parsing
     fn decode_iridium_sbd(data: &Bytes) -> Result<Bytes, TranslateError> {
-        use nom::bytes::complete::take;
-        use nom::error::Error;
-        use nom::number::complete::{be_u16, be_u8};
-        use nom::sequence::tuple;
-        use nom::IResult;
-
-        // Convert Bytes to slice for nom parser
         let data_slice = data.as_ref();
 
-        // Iridium SBD format: [protocol (1)][length (2)][payload (N)][checksum (2)]
-        let result: IResult<&[u8], (_, _, &[u8], _), Error<&[u8]>> = tuple((
-            be_u8::<_, Error<&[u8]>>,                     // protocol
-            be_u16::<_, Error<&[u8]>>,                    // length
-            take::<usize, &[u8], Error<&[u8]>>(340usize), // payload (max 340 bytes)
-            be_u16::<_, Error<&[u8]>>,                    // checksum
-        ))(data_slice);
-
-        match result {
-            Ok((_, (protocol, length, payload, _checksum))) => {
-                // Validate length
-                if length > 340 {
-                    return Err(TranslateError::InvalidProtocol);
-                }
-
-                // Extract actual payload based on length
-                let actual_payload = &payload[..length.min(340) as usize];
-
-                // Convert to ASTS cellular format
-                // For now, just pass through the payload with a cellular header
-                let mut cellular = Vec::with_capacity(1 + actual_payload.len());
-                cellular.push(protocol); // Protocol identifier
-                cellular.extend_from_slice(actual_payload);
-
-                Ok(Bytes::from(cellular))
-            }
-            Err(_) => Err(TranslateError::InvalidProtocol),
+        // Iridium SBD format: [protocol (1)][length (2)][payload (length)][checksum (2)]
+        if data_slice.len() < 3 {
+            return Err(TranslateError::InvalidProtocol);
         }
+
+        let protocol = data_slice[0];
+        let length = u16::from_be_bytes([data_slice[1], data_slice[2]]) as usize;
+
+        if length > 340 {
+            return Err(TranslateError::InvalidProtocol);
+        }
+
+        if data_slice.len() < 3 + length {
+            return Err(TranslateError::InvalidProtocol);
+        }
+
+        let payload = &data_slice[3..3 + length];
+
+        let mut cellular = Vec::with_capacity(1 + payload.len());
+        cellular.push(protocol);
+        cellular.extend_from_slice(payload);
+
+        Ok(Bytes::from(cellular))
     }
 
     fn decode_inmarsat_c(data: &Bytes) -> Result<Bytes, TranslateError> {
@@ -268,6 +257,29 @@ impl Translator {
             }
             Err(_) => Err(TranslateError::InvalidProtocol),
         }
+    }
+
+    /// Synchronous protocol translation for cache-correct hot path use.
+    /// Returns a translated Message ready to send to ASTS, preserving bi-temporal timestamps.
+    pub fn translate_sync(message: Message) -> Result<Message, TranslateError> {
+        let translated_data = match message.protocol {
+            Protocol::IridiumSBD => Self::decode_iridium_sbd(&message.data)?,
+            Protocol::InmarsatC => Self::decode_inmarsat_c(&message.data)?,
+            Protocol::VSAT => Self::compress_for_cellular(&message.data)?,
+            Protocol::HFVHF => Self::codec_translate_to_digital(&message.data)?,
+            Protocol::RockBLOCK => Self::decode_rockblock(&message.data)?,
+            Protocol::Samsara => Self::decode_samsara(&message.data)?,
+            Protocol::NIDD => message.data.clone(),
+            Protocol::ASTSpaceMobile => message.data.clone(),
+        };
+        let mut translated = Message::new(
+            Protocol::ASTSpaceMobile,
+            translated_data,
+            message.priority,
+        );
+        translated.t_event = message.t_event;
+        translated.t_system = message.t_system;
+        Ok(translated)
     }
 
     pub fn zero_copy_translator(&mut self) -> &mut ZeroCopyTranslator {

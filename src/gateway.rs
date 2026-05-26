@@ -6,14 +6,16 @@
 use crate::batcher::AsyncBatcher;
 use crate::bitemporal::BiTemporalStore;
 use crate::cache::AsyncCache;
+use crate::cadence_translation::{CadenceTranslator, TranslationAction};
+use crate::clock_reconciliation::{ClockReconciler, NetworkTimeSource};
 use crate::metrics::Metrics;
-use crate::protocol::{Message, Protocol};
+use crate::protocol::{Message, Priority, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
 use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::Translator;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
@@ -41,6 +43,8 @@ pub struct Gateway {
     shard_manager: Arc<ShardManager>,
     snapshot_manager: Arc<SnapshotManager>,
     bitemporal_store: Arc<BiTemporalStore>,
+    cadence_translator: Mutex<CadenceTranslator>,
+    clock_reconciler: Mutex<ClockReconciler>,
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
     input_tx: mpsc::Sender<Message>,
@@ -65,6 +69,13 @@ impl Gateway {
         let bitemporal_store = Arc::new(BiTemporalStore::new(10000)); // Store 10k messages
         let (input_tx, input_rx) = mpsc::channel(buffer_size);
 
+        let mut cadence_translator = CadenceTranslator::new();
+        for rule in CadenceTranslator::default_iridium_to_asts_rules() {
+            cadence_translator.add_rule(rule);
+        }
+        let clock_reconciler =
+            ClockReconciler::new(1000, Duration::from_secs(300), NetworkTimeSource::LocalClock);
+
         let gateway = Arc::new(Self {
             translator,
             _batcher: batcher,
@@ -75,6 +86,8 @@ impl Gateway {
             shard_manager,
             snapshot_manager,
             bitemporal_store,
+            cadence_translator: Mutex::new(cadence_translator),
+            clock_reconciler: Mutex::new(clock_reconciler),
             asts_credentials,
             telemetry_config,
             input_tx,
@@ -97,14 +110,27 @@ impl Gateway {
 
     async fn process_message(&self, message: Message) {
         let start = Instant::now();
+        let mut message = message;
+
+        // Apply clock reconciliation: correct drifted device t_event to network time.
+        // Use a fast djb2 hash of the payload as a surrogate device ID.
+        let device_id: u64 = message
+            .data
+            .iter()
+            .fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64));
+        if let Ok(reconciler) = self.clock_reconciler.lock() {
+            if let Some(corrected) = reconciler.reconcile(device_id, message.t_event) {
+                message.t_event = corrected;
+            }
+        }
 
         // Store message in bi-temporal store for insurance underwriting and trade compliance
         self.bitemporal_store.store(message.clone()).await;
+        self.metrics.record_protocol(message.protocol);
 
         // Check if this is a deadzone emergency - use dedicated shard for immediate uplink
         if message.is_emergency() {
             let _ = self.shard_manager.push_deadzone(message.clone()).await;
-            // Create snapshot for instant uplink if needed
             let snapshot_id = self
                 .snapshot_manager
                 .create_snapshot(vec![message.clone()], message.protocol)
@@ -113,6 +139,20 @@ impl Gateway {
                 "Emergency message sent to deadzone shard, snapshot: {}",
                 snapshot_id
             );
+        }
+
+        // Apply cadence translation for IridiumSBD to prevent flooding ASTS.
+        // Emergency priority always bypasses cadence limiting.
+        if message.protocol == Protocol::IridiumSBD && message.priority != Priority::Emergency {
+            let action = self
+                .cadence_translator
+                .lock()
+                .map(|mut ct| ct.translate_message("telemetry", Protocol::IridiumSBD, message.priority.clone()))
+                .unwrap_or(TranslationAction::Send);
+            if matches!(action, TranslationAction::Drop) {
+                tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
+                return;
+            }
         }
 
         // Check cache first (bi-temporal: use t_event for cache key)
@@ -129,7 +169,7 @@ impl Gateway {
 
         self.metrics.record_cache_miss();
 
-        // Push to appropriate shard for load balancing (now with backpressure)
+        // Push to appropriate shard for load balancing (with backpressure)
         match self.shard_manager.push(message.clone()).await {
             Ok(_) => {}
             Err(e) => {
@@ -143,7 +183,17 @@ impl Gateway {
             }
         }
 
-        // Translate with circuit breaker
+        // Synchronously translate to get the actual ASTS-format message before caching.
+        let translated = match Translator::translate_sync(message.clone()) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(error = %e, protocol = %message.protocol, "Translation failed");
+                self.metrics.record_error();
+                return;
+            }
+        };
+
+        // Wrap translation in circuit breaker for fault isolation
         let result = self
             .circuit_breaker
             .call(async {
@@ -157,17 +207,17 @@ impl Gateway {
                 self.metrics.increment_translated();
                 self.metrics.record_latency(start.elapsed());
 
-                // Cache the result (bi-temporal: include t_event)
+                // Cache the translated message keyed by original raw data + t_event
                 self.cache
-                    .set(message.protocol, &message.data, message.clone())
+                    .set(message.protocol, &message.data, translated.clone())
                     .await;
 
-                // Create snapshot for fast uplink building
+                // Create snapshot of translated message for fast uplink building
                 self.snapshot_manager
-                    .create_snapshot(vec![message.clone()], message.protocol)
+                    .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile)
                     .await;
 
-                self.send_to_asts(message).await;
+                self.send_to_asts(translated).await;
             }
             Err(_) => {
                 self.metrics.record_error();

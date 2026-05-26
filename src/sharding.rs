@@ -215,18 +215,22 @@ impl ShardManager {
             Protocol::HFVHF => 4,
             Protocol::RockBLOCK => 5,
             Protocol::Samsara => 6,
-            Protocol::ASTSpaceMobile => 7,
+            Protocol::NIDD => 7,
+            Protocol::ASTSpaceMobile => 8,
         };
-        ShardId(hash % self.num_shards as u64)
+        // Ensure we never collide with the reserved deadzone shard (ShardId(0))
+        ShardId(1 + (hash % self.num_shards as u64))
     }
 
     fn select_shard_for_message(&self, _message: &Message) -> ShardId {
-        // Load balancing: select shard with least messages
+        // Load balancing: select non-deadzone shard with least messages.
+        // ShardId(0) is reserved exclusively for emergency deadzone uplinks.
         self.shards
             .iter()
+            .filter(|entry| *entry.key() != ShardId(0))
             .min_by_key(|entry| entry.value().len())
             .map(|entry| *entry.key())
-            .unwrap_or_else(|| ShardId(0))
+            .unwrap_or_else(|| ShardId(1))
     }
 
     fn create_shard(&self, shard_id: ShardId) {
