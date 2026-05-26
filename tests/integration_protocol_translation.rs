@@ -200,7 +200,7 @@ async fn test_multi_protocol_batch_translation() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_cache_hit_in_translation_flow() {
     let gateway = Gateway::new(
         100,
@@ -313,7 +313,7 @@ async fn test_emergency_message_priority_handling() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_snapshot_creation_in_translation_flow() {
     let gateway = Gateway::new(
         100,
