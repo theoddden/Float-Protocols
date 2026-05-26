@@ -202,8 +202,7 @@ impl Gateway {
             }
         };
 
-        // Record metrics after successful sync translation
-        self.metrics.increment_translated();
+        // Record latency after successful sync translation
         self.metrics.record_latency(start.elapsed());
 
         // Wrap translation in circuit breaker for fault isolation
@@ -257,6 +256,7 @@ impl Gateway {
     }
 
     pub async fn send(&self, message: Message) -> Result<(), mpsc::error::SendError<Message>> {
+        self.metrics.increment_translated();
         self.input_tx.send(message).await
     }
 
