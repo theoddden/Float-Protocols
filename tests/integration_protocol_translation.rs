@@ -214,8 +214,16 @@ async fn test_cache_hit_in_translation_flow() {
         },
     );
 
-    // Send the same message twice
-    let data = Bytes::from(vec![1u8; 200]);
+    // Send the same message twice - create valid IridiumSBD data
+    // Format: [protocol(1)][length(2)][payload(N)][checksum(2)]
+    let mut data = vec![0u8; 3 + 10 + 2]; // header + 10 byte payload + checksum
+    data[0] = 1; // protocol
+    data[1] = 0; // length high byte
+    data[2] = 10; // length low byte (10 bytes payload)
+                  // payload is zeros (data[3..13])
+    data[13] = 0; // checksum high byte
+    data[14] = 0; // checksum low byte
+    let data = Bytes::from(data);
     let message1 = Message::new(Protocol::IridiumSBD, data.clone(), Priority::Operational);
     let message2 = Message::new(Protocol::IridiumSBD, data, Priority::Operational);
 
@@ -345,9 +353,18 @@ async fn test_snapshot_creation_in_translation_flow() {
         },
     );
 
+    // Create valid IridiumSBD data
+    // Format: [protocol(1)][length(2)][payload(N)][checksum(2)]
+    let mut data = vec![0u8; 3 + 10 + 2]; // header + 10 byte payload + checksum
+    data[0] = 1; // protocol
+    data[1] = 0; // length high byte
+    data[2] = 10; // length low byte (10 bytes payload)
+                  // payload is zeros (data[3..13])
+    data[13] = 0; // checksum high byte
+    data[14] = 0; // checksum low byte
     let message = Message::new(
         Protocol::IridiumSBD,
-        Bytes::from(vec![0u8; 200]),
+        Bytes::from(data),
         Priority::Operational,
     );
 
