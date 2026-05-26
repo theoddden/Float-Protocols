@@ -7,6 +7,10 @@ use crate::protocol::{Message, Priority};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
+/// Messages with bi-temporal spread exceeding this threshold (30 seconds) are
+/// considered reconnect-burst candidates and trigger an immediate batch flush.
+pub const DEFAULT_SPREAD_FLUSH_THRESHOLD_MS: i64 = 30_000;
+
 pub struct AsyncBatcher {
     _buffer: Vec<Message>,
     _max_batch_size: usize,
@@ -17,6 +21,24 @@ pub struct AsyncBatcher {
 
 impl AsyncBatcher {
     pub fn new(max_batch_size: usize, batch_timeout: Duration, buffer_size: usize) -> Self {
+        Self::new_with_spread_threshold(
+            max_batch_size,
+            batch_timeout,
+            buffer_size,
+            DEFAULT_SPREAD_FLUSH_THRESHOLD_MS,
+        )
+    }
+
+    /// Create a batcher with an explicit spread flush threshold.
+    /// When any buffered message's bi-temporal spread exceeds `spread_threshold_ms`,
+    /// the batch is flushed immediately — reconnect-burst messages should not sit
+    /// in the buffer waiting for the normal time window.
+    pub fn new_with_spread_threshold(
+        max_batch_size: usize,
+        batch_timeout: Duration,
+        buffer_size: usize,
+        spread_threshold_ms: i64,
+    ) -> Self {
         let (input_tx, mut input_rx) = mpsc::channel::<Message>(buffer_size);
         let (output_tx, output_rx) = mpsc::channel::<Vec<Message>>(buffer_size);
 
@@ -31,17 +53,17 @@ impl AsyncBatcher {
                     maybe_msg = input_rx.recv() => {
                         match maybe_msg {
                             Some(msg) => {
-                                // Emergency messages bypass batching
+                                // Emergency messages bypass batching entirely
                                 if msg.is_emergency() {
                                     let emergency_batch = vec![msg];
                                     let _ = output_tx.send(emergency_batch).await;
                                 } else {
                                     buffer.push(msg);
 
-                                    // Flush if buffer full OR timeout OR should flush
+                                    // Flush if buffer full OR timeout OR priority/spread trigger
                                     if buffer.len() >= max_batch_size
                                         || last_flush.elapsed() >= batch_timeout
-                                        || Self::should_flush(&buffer)
+                                        || Self::should_flush(&buffer, spread_threshold_ms)
                                     {
                                         let batch = std::mem::take(&mut buffer);
                                         if !batch.is_empty() {
@@ -76,15 +98,25 @@ impl AsyncBatcher {
         }
     }
 
-    /// vLLM-inspired heuristic: flush if high-priority messages accumulate
-    fn should_flush(buffer: &[Message]) -> bool {
+    /// vLLM-inspired heuristic: flush if high-priority or high-spread messages accumulate.
+    ///
+    /// Two triggers:
+    /// 1. 5+ SafetyCritical messages in the buffer
+    /// 2. Any message with bi-temporal spread > spread_threshold_ms — these are
+    ///    reconnect-burst messages that are already stale and must exit the buffer
+    ///    immediately, not after the normal batch window.
+    fn should_flush(buffer: &[Message], spread_threshold_ms: i64) -> bool {
         let safety_critical_count = buffer
             .iter()
             .filter(|m| m.priority == Priority::SafetyCritical)
             .count();
 
-        // Flush if 5+ safety-critical messages
-        safety_critical_count >= 5
+        if safety_critical_count >= 5 {
+            return true;
+        }
+
+        // Flush immediately if any buffered message is a reconnect-burst candidate
+        buffer.iter().any(|m| m.spread_ms() > spread_threshold_ms)
     }
 
     pub async fn send(&self, message: Message) -> Result<(), mpsc::error::SendError<Message>> {

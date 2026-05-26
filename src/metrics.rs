@@ -17,6 +17,9 @@ pub struct Metrics {
     total_latency_ms: AtomicU64,
     latency_samples: AtomicU64,
 
+    // Bi-temporal spread routing counter
+    spread_sharded_messages: AtomicU64,
+
     // Protocol-specific counters
     iridium_messages: AtomicU64,
     inmarsat_messages: AtomicU64,
@@ -36,6 +39,7 @@ impl Metrics {
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
             errors: AtomicU64::new(0),
+            spread_sharded_messages: AtomicU64::new(0),
             total_latency_ms: AtomicU64::new(0),
             latency_samples: AtomicU64::new(0),
             iridium_messages: AtomicU64::new(0),
@@ -67,6 +71,10 @@ impl Metrics {
 
     pub fn record_error(&self) {
         self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_spread_shard(&self) {
+        self.spread_sharded_messages.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_latency(&self, latency: Duration) {
@@ -109,6 +117,7 @@ impl Metrics {
             messages_batched: self.messages_batched.load(Ordering::Relaxed),
             cache_hit_rate,
             errors: self.errors.load(Ordering::Relaxed),
+            spread_sharded_messages: self.spread_sharded_messages.load(Ordering::Relaxed),
             avg_latency_ms,
             iridium_messages: self.iridium_messages.load(Ordering::Relaxed),
             inmarsat_messages: self.inmarsat_messages.load(Ordering::Relaxed),
@@ -128,6 +137,7 @@ pub struct MetricsSnapshot {
     pub messages_batched: u64,
     pub cache_hit_rate: f64,
     pub errors: u64,
+    pub spread_sharded_messages: u64,
     pub avg_latency_ms: u64,
     pub iridium_messages: u64,
     pub inmarsat_messages: u64,

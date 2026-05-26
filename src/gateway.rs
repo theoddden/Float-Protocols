@@ -2,6 +2,12 @@
 //!
 //! Users bring their own ASTS account details for BYO authentication.
 //! Integrates with telemetry for accurate ping monitoring.
+//!
+//! Spread-based routing: messages with a bi-temporal spread (t_system - t_event)
+//! exceeding HIGH_SPREAD_THRESHOLD_MS are treated as reconnect-burst candidates.
+//! They bypass cadence rate limiting and are routed to the dedicated spread shard
+//! for immediate draining. This turns the bi-temporal store from a passive audit
+//! log into an active routing control signal.
 
 use crate::batcher::AsyncBatcher;
 use crate::bitemporal::BiTemporalStore;
@@ -18,6 +24,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
+
+/// Messages whose bi-temporal spread exceeds this threshold are considered
+/// reconnect-burst candidates: they sat in a dead zone for >30 seconds and
+/// need to be flushed as fast as possible rather than throttled by cadence.
+const HIGH_SPREAD_THRESHOLD_MS: i64 = 30_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ASTSCredentials {
@@ -131,7 +142,12 @@ impl Gateway {
         self.bitemporal_store.store(message.clone()).await;
         self.metrics.record_protocol(message.protocol);
 
-        // Check if this is a deadzone emergency - use dedicated shard for immediate uplink
+        // Compute bi-temporal spread immediately after reconciliation.
+        // This is the primary routing signal for reconnect-burst detection.
+        let spread_ms = message.spread_ms();
+        let is_high_spread = spread_ms > HIGH_SPREAD_THRESHOLD_MS;
+
+        // Emergency path: dedicated deadzone shard, unconditional
         if message.is_emergency() {
             let _ = self.shard_manager.push_deadzone(message.clone()).await;
             let snapshot_id = self
@@ -144,27 +160,67 @@ impl Gateway {
             );
         }
 
-        // Apply cadence translation for IridiumSBD to prevent flooding ASTS.
-        // Emergency priority always bypasses cadence limiting.
-        if message.protocol == Protocol::IridiumSBD && message.priority != Priority::Emergency {
-            let action = self
-                .cadence_translator
-                .lock()
-                .map(|mut ct| {
-                    ct.translate_message(
-                        "telemetry",
-                        Protocol::IridiumSBD,
-                        message.priority.clone(),
-                    )
-                })
-                .unwrap_or(TranslationAction::Send);
-            if matches!(action, TranslationAction::Drop) {
-                tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
-                return;
+        // Spread routing: high-spread messages are reconnect-burst candidates.
+        //
+        // When a device exits a dead zone, accumulated messages arrive all at once
+        // with large t_system - t_event spreads. Applying cadence throttling on top
+        // of already-stale messages compounds the delay. Instead:
+        //   1. Route to the dedicated spread shard (pre-allocated, no backpressure gate)
+        //   2. Skip cadence limiting entirely
+        //   3. Record metric so operators can observe burst events
+        //
+        // Normal messages continue through the cadence check and regular shards.
+        if is_high_spread && !message.is_emergency() {
+            self.metrics.record_spread_shard();
+            match self.shard_manager.push_spread(message.clone()).await {
+                Ok(shard_id) => tracing::info!(
+                    spread_ms,
+                    protocol = %message.protocol,
+                    shard = shard_id.0,
+                    "Reconnect burst: routed to spread shard, cadence bypass"
+                ),
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    spread_ms,
+                    "Spread shard push failed, continuing to translate"
+                ),
+            }
+        } else if !message.is_emergency() {
+            // Normal path: apply cadence limiting for IridiumSBD to prevent ASTS flooding
+            if message.protocol == Protocol::IridiumSBD && message.priority != Priority::Emergency {
+                let action = self
+                    .cadence_translator
+                    .lock()
+                    .map(|mut ct| {
+                        ct.translate_message(
+                            "telemetry",
+                            Protocol::IridiumSBD,
+                            message.priority.clone(),
+                        )
+                    })
+                    .unwrap_or(TranslationAction::Send);
+                if matches!(action, TranslationAction::Drop) {
+                    tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
+                    return;
+                }
+            }
+
+            // Normal shard push with backpressure
+            match self.shard_manager.push(message.clone()).await {
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        protocol = %message.protocol,
+                        "Failed to push message to shard"
+                    );
+                    self.metrics.record_error();
+                    return;
+                }
             }
         }
 
-        // Check cache first (bi-temporal: use t_event for cache key)
+        // Cache check shared across all routing paths
         if let Some(cached) = self
             .cache
             .get(message.protocol, &message.data, message.t_event)
@@ -177,20 +233,6 @@ impl Gateway {
         }
 
         self.metrics.record_cache_miss();
-
-        // Push to appropriate shard for load balancing (with backpressure)
-        match self.shard_manager.push(message.clone()).await {
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    protocol = %message.protocol,
-                    "Failed to push message to shard"
-                );
-                self.metrics.record_error();
-                return;
-            }
-        }
 
         // Synchronously translate to get the actual ASTS-format message before caching.
         let translated = match Translator::translate_sync(message.clone()) {

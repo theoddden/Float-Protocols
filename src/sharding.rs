@@ -75,6 +75,10 @@ pub struct ShardManager {
     shard_size: usize,
     _next_shard_id: u64,
     deadzone_shard_id: ShardId,
+    // Dedicated shard for high bi-temporal spread (reconnect burst recovery).
+    // Pre-allocated, no backpressure gate, no timeout — messages are already
+    // stale so we route and flush them out as fast as possible.
+    spread_shard_id: ShardId,
     // Leak detection counters
     messages_allocated: Arc<AtomicU64>,
     messages_dropped: Arc<AtomicU64>,
@@ -85,14 +89,14 @@ impl ShardManager {
     pub fn new(num_shards: usize, shard_size: usize) -> Self {
         let shards = DashMap::new();
 
-        // Create dedicated deadzone shard (highest priority)
+        // ShardId(0): dedicated deadzone shard (emergency, highest priority)
         let deadzone_shard_id = ShardId(0);
         shards.insert(
             deadzone_shard_id,
             MemoryShard::new(deadzone_shard_id, shard_size, true),
         );
 
-        // Create regular shards
+        // ShardId(1..num_shards): regular load-balanced shards
         for i in 1..num_shards {
             shards.insert(
                 ShardId(i as u64),
@@ -100,12 +104,22 @@ impl ShardManager {
             );
         }
 
+        // ShardId(num_shards): spread shard for reconnect-burst recovery.
+        // Pre-allocated at startup so there is zero allocation latency when
+        // a wide bi-temporal spread triggers routing here.
+        let spread_shard_id = ShardId(num_shards as u64);
+        shards.insert(
+            spread_shard_id,
+            MemoryShard::new(spread_shard_id, shard_size, false),
+        );
+
         Self {
             shards,
             num_shards,
             shard_size,
-            _next_shard_id: num_shards as u64,
+            _next_shard_id: num_shards as u64 + 1,
             deadzone_shard_id,
+            spread_shard_id,
             messages_allocated: Arc::new(AtomicU64::new(0)),
             messages_dropped: Arc::new(AtomicU64::new(0)),
             messages_leaked: Arc::new(AtomicU64::new(0)),
@@ -157,6 +171,32 @@ impl ShardManager {
                 Err(ShardError::Timeout)
             }
         }
+    }
+
+    /// Push message to spread shard for reconnect-burst recovery.
+    ///
+    /// Called when a message's bi-temporal spread (t_system - t_event) exceeds
+    /// the high-spread threshold, indicating the message sat in a dead zone for
+    /// a long time and has just arrived in a reconnect burst. These messages:
+    ///   - Bypass the 80% backpressure gate (already stale, dropping makes it worse)
+    ///   - Bypass the 100ms push timeout (pre-allocated buffer, should be immediate)
+    ///   - Bypass cadence rate limiting in the gateway (enforced by caller)
+    /// The goal is to drain the reconnect burst as fast as possible.
+    pub async fn push_spread(&self, message: Message) -> Result<ShardId, ShardError> {
+        self.messages_allocated.fetch_add(1, Ordering::AcqRel);
+
+        if let Some(mut shard) = self.shards.get_mut(&self.spread_shard_id) {
+            shard.push(message)?;
+            Ok(self.spread_shard_id)
+        } else {
+            self.messages_dropped.fetch_add(1, Ordering::AcqRel);
+            Err(ShardError::NotFound)
+        }
+    }
+
+    /// Get the spread shard ID for burst-recovery draining
+    pub fn get_spread_shard(&self) -> ShardId {
+        self.spread_shard_id
     }
 
     /// Push message to deadzone shard for immediate uplink when deadzone detected
@@ -223,11 +263,13 @@ impl ShardManager {
     }
 
     fn select_shard_for_message(&self, _message: &Message) -> ShardId {
-        // Load balancing: select non-deadzone shard with least messages.
-        // ShardId(0) is reserved exclusively for emergency deadzone uplinks.
+        // Load balancing: select from regular shards only.
+        // ShardId(0) is reserved for emergency deadzone uplinks.
+        // ShardId(num_shards) is reserved for spread burst-recovery.
+        // Neither should receive general traffic.
         self.shards
             .iter()
-            .filter(|entry| *entry.key() != ShardId(0))
+            .filter(|entry| *entry.key() != ShardId(0) && *entry.key() != self.spread_shard_id)
             .min_by_key(|entry| entry.value().len())
             .map(|entry| *entry.key())
             .unwrap_or_else(|| ShardId(1))
