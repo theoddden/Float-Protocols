@@ -149,7 +149,7 @@ impl Protocol {
             Protocol::HFVHF => 1024,               // HF/VHF typical
             Protocol::RockBLOCK => 340,            // RockBLOCK same as Iridium SBD
             Protocol::Samsara => 1048576,          // Samsara cellular broadband (1MB typical)
-            Protocol::NIDD => 1600,               // 3GPP TS 24.582 NIDD max payload
+            Protocol::NIDD => 1600,                // 3GPP TS 24.582 NIDD max payload
             Protocol::ASTSpaceMobile => 120000000, // 120 Mbps max theoretical
         }
     }

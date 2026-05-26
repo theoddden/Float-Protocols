@@ -55,10 +55,10 @@ pub enum DelayClass {
 #[repr(u8)]
 pub enum CoverageEnhancement {
     None = 0,
-    Level1 = 1,  // +0 dB
-    Level2 = 2,  // +3 dB
-    Level3 = 3,  // +5 dB
-    Level4 = 4,  // +8 dB
+    Level1 = 1, // +0 dB
+    Level2 = 2, // +3 dB
+    Level3 = 3, // +5 dB
+    Level4 = 4, // +8 dB
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +83,7 @@ pub struct NIDDMessage {
 impl NIDDMessage {
     /// Parse NIDD message from byte slice (zero-allocation)
     /// Returns None if the buffer is too small
-    /// 
+    ///
     /// Format per 3GPP TS 24.582:
     /// [pdu_type (1)][qos_priority (1)][reliability (1)][delay_class (1)]
     /// [coverage_enhancement (1)][length (2)][sequence (2)][payload (N)]

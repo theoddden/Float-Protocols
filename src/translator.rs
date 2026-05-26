@@ -272,11 +272,8 @@ impl Translator {
             Protocol::NIDD => message.data.clone(),
             Protocol::ASTSpaceMobile => message.data.clone(),
         };
-        let mut translated = Message::new(
-            Protocol::ASTSpaceMobile,
-            translated_data,
-            message.priority,
-        );
+        let mut translated =
+            Message::new(Protocol::ASTSpaceMobile, translated_data, message.priority);
         translated.t_event = message.t_event;
         translated.t_system = message.t_system;
         Ok(translated)

@@ -151,14 +151,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Graceful shutdown: drain in-flight messages with timeout
     tracing::info!("Draining in-flight messages (5s timeout)...");
-    let drain_result = tokio::time::timeout(
-        tokio::time::Duration::from_secs(5),
-        async {
-            // Gateway will naturally drain as we drop it
-            // The timeout ensures we don't hang indefinitely
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        },
-    )
+    let drain_result = tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
+        // Gateway will naturally drain as we drop it
+        // The timeout ensures we don't hang indefinitely
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    })
     .await;
 
     match drain_result {

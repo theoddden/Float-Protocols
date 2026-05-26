@@ -73,8 +73,11 @@ impl Gateway {
         for rule in CadenceTranslator::default_iridium_to_asts_rules() {
             cadence_translator.add_rule(rule);
         }
-        let clock_reconciler =
-            ClockReconciler::new(1000, Duration::from_secs(300), NetworkTimeSource::LocalClock);
+        let clock_reconciler = ClockReconciler::new(
+            1000,
+            Duration::from_secs(300),
+            NetworkTimeSource::LocalClock,
+        );
 
         let gateway = Arc::new(Self {
             translator,
@@ -147,7 +150,13 @@ impl Gateway {
             let action = self
                 .cadence_translator
                 .lock()
-                .map(|mut ct| ct.translate_message("telemetry", Protocol::IridiumSBD, message.priority.clone()))
+                .map(|mut ct| {
+                    ct.translate_message(
+                        "telemetry",
+                        Protocol::IridiumSBD,
+                        message.priority.clone(),
+                    )
+                })
                 .unwrap_or(TranslationAction::Send);
             if matches!(action, TranslationAction::Drop) {
                 tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
