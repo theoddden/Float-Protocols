@@ -375,7 +375,7 @@ async fn test_snapshot_creation_in_translation_flow() {
         sleep(Duration::from_millis(50)).await;
         let snapshot_manager = gateway.snapshot_manager();
         let snapshots = snapshot_manager
-            .get_protocol_snapshots(Protocol::IridiumSBD)
+            .get_protocol_snapshots(Protocol::ASTSpaceMobile)
             .await;
         if !snapshots.is_empty() {
             return; // Success
@@ -385,7 +385,7 @@ async fn test_snapshot_creation_in_translation_flow() {
     // Verify snapshot was created
     let snapshot_manager = gateway.snapshot_manager();
     let snapshots = snapshot_manager
-        .get_protocol_snapshots(Protocol::IridiumSBD)
+        .get_protocol_snapshots(Protocol::ASTSpaceMobile)
         .await;
     assert!(
         !snapshots.is_empty(),
