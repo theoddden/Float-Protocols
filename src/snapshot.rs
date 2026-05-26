@@ -16,7 +16,7 @@ pub struct Snapshot {
     pub protocol: Protocol,
     pub created_at: u64, // Unix timestamp in milliseconds
     pub size_bytes: usize,
-    pub device_id: u64,  // djb2 hash of sender payload; 0 = unknown
+    pub device_id: u64, // djb2 hash of sender payload; 0 = unknown
 }
 
 pub struct SnapshotManager {

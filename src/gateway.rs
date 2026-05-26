@@ -205,7 +205,8 @@ impl Gateway {
 
     /// djb2 hash of message payload used as a surrogate device ID.
     fn djb2_hash(data: &bytes::Bytes) -> u64 {
-        data.iter().fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64))
+        data.iter()
+            .fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64))
     }
 
     /// Emergency fast path: bypasses the batcher entirely.
@@ -228,7 +229,9 @@ impl Gateway {
             .create_snapshot(vec![message.clone()], message.protocol, device_id)
             .await;
         if let Ok(translated) = Translator::translate_sync(message.clone()) {
-            self.cache.set(message.protocol, &message.data, translated.clone()).await;
+            self.cache
+                .set(message.protocol, &message.data, translated.clone())
+                .await;
             self.send_to_asts(translated).await;
         } else {
             self.metrics.record_error();
@@ -245,19 +248,24 @@ impl Gateway {
     ///   4. Batch cache lookup (one parking_lot read lock for batch)
     ///   5. Cache hits → emit directly; cache misses → push to shard workers
     async fn process_incoming_batch(&self, batch: Vec<Message>) {
-        if batch.is_empty() { return; }
+        if batch.is_empty() {
+            return;
+        }
 
         // 1. Clock reconcile — acquire once for entire batch
         let reconciled: Vec<Message> = {
             let reconciler = self.clock_reconciler.lock();
-            batch.into_iter().map(|mut msg| {
-                let device_id = Self::djb2_hash(&msg.data);
-                if let Some(corrected) = reconciler.reconcile(device_id, msg.t_event) {
-                    msg.t_event = corrected;
-                }
-                self.metrics.record_protocol(msg.protocol);
-                msg
-            }).collect()
+            batch
+                .into_iter()
+                .map(|mut msg| {
+                    let device_id = Self::djb2_hash(&msg.data);
+                    if let Some(corrected) = reconciler.reconcile(device_id, msg.t_event) {
+                        msg.t_event = corrected;
+                    }
+                    self.metrics.record_protocol(msg.protocol);
+                    msg
+                })
+                .collect()
         };
 
         // 2. Bi-temporal store — one write lock for entire batch
@@ -271,7 +279,8 @@ impl Gateway {
             let mut normal = Vec::new();
             for msg in reconciled {
                 ewma.update(msg.spread_ms());
-                let threshold = ewma.adaptive_threshold_ms(msg.protocol.spread_burst_threshold_ms());
+                let threshold =
+                    ewma.adaptive_threshold_ms(msg.protocol.spread_burst_threshold_ms());
                 if msg.spread_ms() > threshold {
                     spread.push(msg);
                 } else {
@@ -279,7 +288,11 @@ impl Gateway {
                     if msg.protocol == Protocol::IridiumSBD
                         && msg.priority != Priority::Emergency
                         && matches!(
-                            ct.translate_message("telemetry", Protocol::IridiumSBD, msg.priority.clone()),
+                            ct.translate_message(
+                                "telemetry",
+                                Protocol::IridiumSBD,
+                                msg.priority.clone()
+                            ),
                             TranslationAction::Drop
                         )
                     {
@@ -300,11 +313,16 @@ impl Gateway {
             }
         }
 
-        if normal_msgs.is_empty() { return; }
+        if normal_msgs.is_empty() {
+            return;
+        }
 
         // 4. Batch cache lookup — one read lock for entire batch
         let cache_results = self.cache.get_batch(
-            &normal_msgs.iter().map(|m| (m.protocol, &m.data)).collect::<Vec<_>>(),
+            &normal_msgs
+                .iter()
+                .map(|m| (m.protocol, &m.data))
+                .collect::<Vec<_>>(),
         );
 
         // 5. Route: hits → emit now; misses → push to shard workers
@@ -330,7 +348,9 @@ impl Gateway {
     /// Acquires cache write lock and snapshot write lock once each for the batch,
     /// amortizing lock overhead across all N messages.
     async fn process_translated_batch(&self, messages: Vec<Message>) {
-        if messages.is_empty() { return; }
+        if messages.is_empty() {
+            return;
+        }
         let start = Instant::now();
 
         // Translate all messages; collect (original, translated) pairs
@@ -344,10 +364,13 @@ impl Gateway {
                 }
             }
         }
-        if pairs.is_empty() { return; }
+        if pairs.is_empty() {
+            return;
+        }
 
         // Batch cache set — one write lock
-        let cache_entries: Vec<(Protocol, bytes::Bytes, Message)> = pairs.iter()
+        let cache_entries: Vec<(Protocol, bytes::Bytes, Message)> = pairs
+            .iter()
             .map(|(orig, t)| (orig.protocol, orig.data.clone(), t.clone()))
             .collect();
         self.cache.set_batch(cache_entries).await;
@@ -365,7 +388,6 @@ impl Gateway {
         }
         self.metrics.record_latency(start.elapsed());
     }
-
 
     /// Drain the spread shard and translate+emit all buffered messages directly.
     ///
@@ -400,7 +422,11 @@ impl Gateway {
                 .await;
             let device_id = Self::djb2_hash(&message.data);
             self.snapshot_manager
-                .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile, device_id)
+                .create_snapshot(
+                    vec![translated.clone()],
+                    Protocol::ASTSpaceMobile,
+                    device_id,
+                )
                 .await;
             self.send_to_asts(translated).await;
             self.metrics.increment_translated();

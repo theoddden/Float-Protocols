@@ -33,7 +33,7 @@ struct CacheKey {
 
 struct CacheEntry {
     message: Message,
-    t_event: u64,    // retained for time-range invalidation queries
+    t_event: u64, // retained for time-range invalidation queries
     timestamp: Instant,
     ttl: Duration,
 }
@@ -51,18 +51,33 @@ impl AsyncCache {
     /// Get cached translation. parking_lot is synchronous so this completes
     /// without yielding — kept async for API compat with callers.
     pub async fn get(&self, protocol: Protocol, data: &Bytes) -> Option<Message> {
-        let key = CacheKey { protocol, data_hash: Self::hash_data(data) };
+        let key = CacheKey {
+            protocol,
+            data_hash: Self::hash_data(data),
+        };
         let entries = self.entries.read();
         entries.get(&key).and_then(|e| {
-            if e.timestamp.elapsed() < e.ttl { Some(e.message.clone()) } else { None }
+            if e.timestamp.elapsed() < e.ttl {
+                Some(e.message.clone())
+            } else {
+                None
+            }
         })
     }
 
     /// Cache a translation result with O(1) eviction via insertion-order queue.
     pub async fn set(&self, protocol: Protocol, data: &Bytes, message: Message) {
         let t_event = message.t_event;
-        let key = CacheKey { protocol, data_hash: Self::hash_data(data) };
-        let entry = CacheEntry { message, t_event, timestamp: Instant::now(), ttl: self.default_ttl };
+        let key = CacheKey {
+            protocol,
+            data_hash: Self::hash_data(data),
+        };
+        let entry = CacheEntry {
+            message,
+            t_event,
+            timestamp: Instant::now(),
+            ttl: self.default_ttl,
+        };
         let mut entries = self.entries.write();
         let mut order = self.eviction_order.lock();
         if entries.len() >= self.max_entries {
@@ -79,23 +94,43 @@ impl AsyncCache {
     /// Returns results in the same order as `queries`.
     pub fn get_batch(&self, queries: &[(Protocol, &Bytes)]) -> Vec<Option<Message>> {
         let entries = self.entries.read();
-        queries.iter().map(|(protocol, data)| {
-            let key = CacheKey { protocol: *protocol, data_hash: Self::hash_data(data) };
-            entries.get(&key).and_then(|e| {
-                if e.timestamp.elapsed() < e.ttl { Some(e.message.clone()) } else { None }
+        queries
+            .iter()
+            .map(|(protocol, data)| {
+                let key = CacheKey {
+                    protocol: *protocol,
+                    data_hash: Self::hash_data(data),
+                };
+                entries.get(&key).and_then(|e| {
+                    if e.timestamp.elapsed() < e.ttl {
+                        Some(e.message.clone())
+                    } else {
+                        None
+                    }
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Batch set: acquires the write lock once for all N entries.
     pub async fn set_batch(&self, batch: Vec<(Protocol, Bytes, Message)>) {
-        if batch.is_empty() { return; }
+        if batch.is_empty() {
+            return;
+        }
         let mut entries = self.entries.write();
         let mut order = self.eviction_order.lock();
         for (protocol, data, message) in batch {
             let t_event = message.t_event;
-            let key = CacheKey { protocol, data_hash: Self::hash_data(&data) };
-            let entry = CacheEntry { message, t_event, timestamp: Instant::now(), ttl: self.default_ttl };
+            let key = CacheKey {
+                protocol,
+                data_hash: Self::hash_data(&data),
+            };
+            let entry = CacheEntry {
+                message,
+                t_event,
+                timestamp: Instant::now(),
+                ttl: self.default_ttl,
+            };
             if entries.len() >= self.max_entries {
                 if let Some(oldest) = order.pop_front() {
                     entries.remove(&oldest);
@@ -138,13 +173,21 @@ impl AsyncCache {
     /// Get cache statistics.
     pub async fn stats(&self) -> CacheStats {
         let entries = self.entries.read();
-        let valid_count = entries.values().filter(|e| e.timestamp.elapsed() < e.ttl).count();
-        CacheStats { total_entries: entries.len(), valid_entries: valid_count, max_entries: self.max_entries }
+        let valid_count = entries
+            .values()
+            .filter(|e| e.timestamp.elapsed() < e.ttl)
+            .count();
+        CacheStats {
+            total_entries: entries.len(),
+            valid_entries: valid_count,
+            max_entries: self.max_entries,
+        }
     }
 
     fn hash_data(data: &Bytes) -> u64 {
         // djb2 — deterministic, fast for short binary satellite payloads
-        data.iter().fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64))
+        data.iter()
+            .fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64))
     }
 }
 
@@ -178,9 +221,17 @@ mod tests {
             Bytes::from(&b"test data"[..]),
             Priority::Operational,
         );
-        cache.set(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), message.clone()).await;
+        cache
+            .set(
+                Protocol::IridiumSBD,
+                &Bytes::from(&b"test data"[..]),
+                message.clone(),
+            )
+            .await;
         // No t_event in get — cache key is (protocol, payload_hash) only
-        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..])).await;
+        let cached = cache
+            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]))
+            .await;
         assert!(cached.is_some());
     }
 
@@ -192,17 +243,31 @@ mod tests {
             Bytes::from(&b"test data"[..]),
             Priority::Operational,
         );
-        cache.set(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]), message).await;
+        cache
+            .set(
+                Protocol::IridiumSBD,
+                &Bytes::from(&b"test data"[..]),
+                message,
+            )
+            .await;
         tokio::time::sleep(Duration::from_millis(150)).await;
-        let cached = cache.get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..])).await;
+        let cached = cache
+            .get(Protocol::IridiumSBD, &Bytes::from(&b"test data"[..]))
+            .await;
         assert!(cached.is_none());
     }
 
     #[tokio::test]
     async fn test_get_batch_hit_and_miss() {
         let cache = AsyncCache::new(100, Duration::from_secs(60));
-        let msg = Message::new(Protocol::IridiumSBD, Bytes::from(&b"batchkey"[..]), Priority::Operational);
-        cache.set(Protocol::IridiumSBD, &Bytes::from(&b"batchkey"[..]), msg).await;
+        let msg = Message::new(
+            Protocol::IridiumSBD,
+            Bytes::from(&b"batchkey"[..]),
+            Priority::Operational,
+        );
+        cache
+            .set(Protocol::IridiumSBD, &Bytes::from(&b"batchkey"[..]), msg)
+            .await;
         let results = cache.get_batch(&[(Protocol::IridiumSBD, &Bytes::from(&b"batchkey"[..]))]);
         assert!(results[0].is_some(), "should hit");
         let miss = cache.get_batch(&[(Protocol::InmarsatC, &Bytes::from(&b"batchkey"[..]))]);
@@ -217,7 +282,13 @@ mod tests {
         cache.set(Protocol::IridiumSBD, &mk(1), msg(1)).await;
         cache.set(Protocol::IridiumSBD, &mk(2), msg(2)).await;
         cache.set(Protocol::IridiumSBD, &mk(3), msg(3)).await; // evicts key 1
-        assert!(cache.get(Protocol::IridiumSBD, &mk(1)).await.is_none(), "key 1 evicted");
-        assert!(cache.get(Protocol::IridiumSBD, &mk(3)).await.is_some(), "key 3 present");
+        assert!(
+            cache.get(Protocol::IridiumSBD, &mk(1)).await.is_none(),
+            "key 1 evicted"
+        );
+        assert!(
+            cache.get(Protocol::IridiumSBD, &mk(3)).await.is_some(),
+            "key 3 present"
+        );
     }
 }
