@@ -202,6 +202,10 @@ impl Gateway {
             }
         };
 
+        // Record metrics after successful sync translation
+        self.metrics.increment_translated();
+        self.metrics.record_latency(start.elapsed());
+
         // Wrap translation in circuit breaker for fault isolation
         let result = self
             .circuit_breaker
@@ -213,9 +217,6 @@ impl Gateway {
 
         match result {
             Ok(_) => {
-                self.metrics.increment_translated();
-                self.metrics.record_latency(start.elapsed());
-
                 // Cache the translated message keyed by original raw data + t_event
                 self.cache
                     .set(message.protocol, &message.data, translated.clone())
