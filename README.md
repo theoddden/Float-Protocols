@@ -4,9 +4,20 @@
 
 **STAR THE REPO, IT'S A HUGE HELP**
 
-## May 2026 Edition - v0.3.0
+## May 2026 Edition - v0.4.0
 
-**New: NIDD Protocol Support**
+**Major: Fully Embedded Primitives**
+- Per-shard worker pools with batched draining (run_batched) — 7 workers for regular shards
+- Batcher as primary normal path; emergency messages bypass batcher entirely
+- Payload-deterministic caching: t_event removed from CacheKey (same payload = same translation)
+- parking_lot RwLock for cache (sync, no yield) — O(1) eviction via VecDeque insertion-order queue
+- Batch APIs: cache.get_batch/set_batch, bitemporal.store_batch, snapshot.create_batch_snapshot
+- FNV-1a stable hash for snapshot IDs (replaces randomized DefaultHasher)
+- device_id field in Snapshot for per-device uplink drainage
+- Fixed critical bug: ShardWorker.run/run_batched changed from async fn to plain fn (workers now actually spawn)
+- Message flow: send() → batcher [normal] / process_emergency [emergency] → process_incoming_batch → shard workers → process_translated_batch
+
+**v0.3.0: NIDD Protocol Support**
 - Full 3GPP TS 24.582 compliant Non-IP Data Delivery implementation for NTN NB-IoT
 - Eliminates 28-byte IP/UDP header overhead (56% reduction for small sensor messages)
 - Control-plane priority for emergency messages
