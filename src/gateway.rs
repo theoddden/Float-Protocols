@@ -20,15 +20,63 @@ use crate::reliability::{CircuitBreaker, RetryPolicy};
 use crate::sharding::ShardManager;
 use crate::snapshot::SnapshotManager;
 use crate::translator::Translator;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
-/// Messages whose bi-temporal spread exceeds this threshold are considered
-/// reconnect-burst candidates: they sat in a dead zone for >30 seconds and
-/// need to be flushed as fast as possible rather than throttled by cadence.
-const HIGH_SPREAD_THRESHOLD_MS: i64 = 30_000;
+/// Smoothing factor for the EWMA spread tracker.
+/// 0.05 = slow adaptation (~20-message half-life), suitable for satellite
+/// environments where the baseline spread is stable for long periods.
+const EWMA_ALPHA: f64 = 0.05;
+
+/// Number of EWMA mean-absolute-deviations above the mean that triggers
+/// the adaptive threshold. 3 MAD ≈ 3σ for Gaussian data.
+const EWMA_SIGMA: f64 = 3.0;
+
+/// Tracks an exponentially weighted moving average of bi-temporal spread
+/// to compute an adaptive routing threshold per gateway instance.
+/// The threshold rises in environments with chronic high latency (preventing
+/// false positives) and stays at the protocol base in healthy environments.
+struct EwmaSpreadState {
+    spread: f64,
+    abs_dev: f64,
+    initialized: bool,
+}
+
+impl EwmaSpreadState {
+    fn new() -> Self {
+        Self {
+            spread: 0.0,
+            abs_dev: 0.0,
+            initialized: false,
+        }
+    }
+
+    fn update(&mut self, spread_ms: i64) {
+        let s = spread_ms as f64;
+        if !self.initialized {
+            self.spread = s;
+            self.abs_dev = s.abs();
+            self.initialized = true;
+            return;
+        }
+        let prev = self.spread;
+        self.spread = EWMA_ALPHA * s + (1.0 - EWMA_ALPHA) * prev;
+        self.abs_dev = EWMA_ALPHA * (s - prev).abs() + (1.0 - EWMA_ALPHA) * self.abs_dev;
+    }
+
+    /// Adaptive threshold = max(protocol_base, ewma + 3 * MAD).
+    /// Can only raise the bar above the protocol base, never lower it.
+    fn adaptive_threshold_ms(&self, protocol_base_ms: i64) -> i64 {
+        if !self.initialized {
+            return protocol_base_ms;
+        }
+        let adaptive = (self.spread + EWMA_SIGMA * self.abs_dev) as i64;
+        protocol_base_ms.max(adaptive)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ASTSCredentials {
@@ -56,6 +104,7 @@ pub struct Gateway {
     bitemporal_store: Arc<BiTemporalStore>,
     cadence_translator: Mutex<CadenceTranslator>,
     clock_reconciler: Mutex<ClockReconciler>,
+    ewma_state: Mutex<EwmaSpreadState>,
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
     input_tx: mpsc::Sender<Message>,
@@ -102,6 +151,7 @@ impl Gateway {
             bitemporal_store,
             cadence_translator: Mutex::new(cadence_translator),
             clock_reconciler: Mutex::new(clock_reconciler),
+            ewma_state: Mutex::new(EwmaSpreadState::new()),
             asts_credentials,
             telemetry_config,
             input_tx,
@@ -111,6 +161,19 @@ impl Gateway {
         let gateway_clone = Arc::clone(&gateway);
         tokio::spawn(async move {
             gateway_clone.process_loop(input_rx).await;
+        });
+
+        // Spawn background spread-shard drainer.
+        // Every 50ms, drain any messages buffered in the spread shard during
+        // reconnect bursts and translate+emit them directly, bypassing routing.
+        let drain_clone = Arc::clone(&gateway);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(50));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                drain_clone.drain_spread_shard_once().await;
+            }
         });
 
         gateway
@@ -132,7 +195,8 @@ impl Gateway {
             .data
             .iter()
             .fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64));
-        if let Ok(reconciler) = self.clock_reconciler.lock() {
+        {
+            let reconciler = self.clock_reconciler.lock();
             if let Some(corrected) = reconciler.reconcile(device_id, message.t_event) {
                 message.t_event = corrected;
             }
@@ -142,14 +206,22 @@ impl Gateway {
         self.bitemporal_store.store(message.clone()).await;
         self.metrics.record_protocol(message.protocol);
 
-        // Compute bi-temporal spread immediately after reconciliation.
-        // This is the primary routing signal for reconnect-burst detection.
+        // Compute bi-temporal spread immediately after reconciliation and
+        // update the EWMA state. The adaptive threshold is:
+        //   max(protocol_base_ms, ewma_spread + 3 * ewma_abs_deviation)
+        // This prevents false positives when chronic latency is near the
+        // protocol base, while remaining sensitive to sudden reconnect bursts.
         let spread_ms = message.spread_ms();
-        let is_high_spread = spread_ms > HIGH_SPREAD_THRESHOLD_MS;
+        let threshold_ms = {
+            let mut ewma = self.ewma_state.lock();
+            ewma.update(spread_ms);
+            ewma.adaptive_threshold_ms(message.protocol.spread_burst_threshold_ms())
+        };
+        let is_high_spread = spread_ms > threshold_ms;
 
         // Emergency path: dedicated deadzone shard, unconditional
         if message.is_emergency() {
-            let _ = self.shard_manager.push_deadzone(message.clone()).await;
+            let _ = self.shard_manager.push_deadzone(message.clone());
             let snapshot_id = self
                 .snapshot_manager
                 .create_snapshot(vec![message.clone()], message.protocol)
@@ -172,7 +244,7 @@ impl Gateway {
         // Normal messages continue through the cadence check and regular shards.
         if is_high_spread && !message.is_emergency() {
             self.metrics.record_spread_shard();
-            match self.shard_manager.push_spread(message.clone()).await {
+            match self.shard_manager.push_spread(message.clone()) {
                 Ok(shard_id) => tracing::info!(
                     spread_ms,
                     protocol = %message.protocol,
@@ -188,17 +260,14 @@ impl Gateway {
         } else if !message.is_emergency() {
             // Normal path: apply cadence limiting for IridiumSBD to prevent ASTS flooding
             if message.protocol == Protocol::IridiumSBD && message.priority != Priority::Emergency {
-                let action = self
-                    .cadence_translator
-                    .lock()
-                    .map(|mut ct| {
-                        ct.translate_message(
-                            "telemetry",
-                            Protocol::IridiumSBD,
-                            message.priority.clone(),
-                        )
-                    })
-                    .unwrap_or(TranslationAction::Send);
+                let action = {
+                    let mut ct = self.cadence_translator.lock();
+                    ct.translate_message(
+                        "telemetry",
+                        Protocol::IridiumSBD,
+                        message.priority.clone(),
+                    )
+                };
                 if matches!(action, TranslationAction::Drop) {
                     tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
                     return;
@@ -206,7 +275,7 @@ impl Gateway {
             }
 
             // Normal shard push with backpressure
-            match self.shard_manager.push(message.clone()).await {
+            match self.shard_manager.push(message.clone()) {
                 Ok(_) => {}
                 Err(e) => {
                     tracing::warn!(
@@ -273,6 +342,45 @@ impl Gateway {
             Err(_) => {
                 self.metrics.record_error();
             }
+        }
+    }
+
+    /// Drain the spread shard and translate+emit all buffered messages directly.
+    ///
+    /// Called every 50ms by the background drain task. Messages buffered here
+    /// are reconnect-burst candidates that have already been routed — they skip
+    /// the normal push/cadence/cache path and go straight to translation+emit.
+    async fn drain_spread_shard_once(&self) {
+        let shard_id = self.shard_manager.get_spread_shard();
+        let messages = self.shard_manager.drain_shard(shard_id);
+        if messages.is_empty() {
+            return;
+        }
+        tracing::debug!(
+            count = messages.len(),
+            "Draining spread shard burst-recovery messages"
+        );
+        for message in messages {
+            let translated = match Translator::translate_sync(message.clone()) {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        protocol = %message.protocol,
+                        "Spread drain: translation failed"
+                    );
+                    self.metrics.record_error();
+                    continue;
+                }
+            };
+            self.cache
+                .set(message.protocol, &message.data, translated.clone())
+                .await;
+            self.snapshot_manager
+                .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile)
+                .await;
+            self.send_to_asts(translated).await;
+            self.metrics.increment_translated();
         }
     }
 

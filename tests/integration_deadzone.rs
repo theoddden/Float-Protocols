@@ -171,7 +171,7 @@ async fn test_deadzone_to_regular_shard_transition() {
                     Bytes::from(vec![0xFF; 200]),
                     Priority::Emergency,
                 );
-                let _ = shard_manager_clone.push_deadzone(msg).await;
+                let _ = shard_manager_clone.push_deadzone(msg);
             } else {
                 // Regular operation: drain deadzone shard
                 shard_manager_clone.drain_shard(ShardId(0));

@@ -79,6 +79,14 @@ pub struct ShardManager {
     // Pre-allocated, no backpressure gate, no timeout — messages are already
     // stale so we route and flush them out as fast as possible.
     spread_shard_id: ShardId,
+    // O(1) backpressure: atomic count of messages in regular shards only.
+    // Incremented in push(), decremented in drain_shard() for regular shards.
+    // Avoids the O(n) stats() full-scan on every push().
+    total_regular_messages: Arc<AtomicU64>,
+    // Precomputed 80% capacity limit for regular shards.
+    backpressure_limit: u64,
+    // Round-robin index for O(1) shard selection.
+    round_robin: Arc<AtomicU64>,
     // Leak detection counters
     messages_allocated: Arc<AtomicU64>,
     messages_dropped: Arc<AtomicU64>,
@@ -113,6 +121,11 @@ impl ShardManager {
             MemoryShard::new(spread_shard_id, shard_size, false),
         );
 
+        // Regular shards are ShardId(1)..ShardId(num_shards-1) — (num_shards-1) total.
+        // Backpressure fires at 80% of their combined capacity.
+        let regular_shard_count = (num_shards - 1) as u64;
+        let backpressure_limit = regular_shard_count * shard_size as u64 * 8 / 10;
+
         Self {
             shards,
             num_shards,
@@ -120,6 +133,9 @@ impl ShardManager {
             _next_shard_id: num_shards as u64 + 1,
             deadzone_shard_id,
             spread_shard_id,
+            total_regular_messages: Arc::new(AtomicU64::new(0)),
+            backpressure_limit,
+            round_robin: Arc::new(AtomicU64::new(0)),
             messages_allocated: Arc::new(AtomicU64::new(0)),
             messages_dropped: Arc::new(AtomicU64::new(0)),
             messages_leaked: Arc::new(AtomicU64::new(0)),
@@ -137,53 +153,40 @@ impl ShardManager {
         shard_id
     }
 
-    /// Push message to appropriate shard with load balancing and backpressure
-    pub async fn push(&self, message: Message) -> Result<ShardId, ShardError> {
-        // Check utilization before attempting push (backpressure)
-        let stats = self.stats();
-        if stats.utilization() > 0.8 {
+    /// Push message to appropriate shard with load balancing and backpressure.
+    ///
+    /// O(1): atomic utilization check + round-robin shard selection.
+    /// No async, no timeout registration — DashMap shard lock is held for nanoseconds.
+    pub fn push(&self, message: Message) -> Result<ShardId, ShardError> {
+        // O(1) backpressure via atomic counter — replaces the O(n) stats() scan
+        if self.total_regular_messages.load(Ordering::Relaxed) >= self.backpressure_limit {
             self.messages_dropped.fetch_add(1, Ordering::AcqRel);
             return Err(ShardError::Backpressure);
         }
 
-        let shard_id = self.select_shard_for_message(&message);
-
-        // Increment allocated counter
+        let shard_id = self.select_shard_for_message();
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
-        // Try to push with timeout
-        match tokio::time::timeout(Duration::from_millis(100), async {
-            if let Some(mut shard) = self.shards.get_mut(&shard_id) {
-                shard.push(message)
-            } else {
-                Err(ShardError::NotFound)
-            }
-        })
-        .await
-        {
-            Ok(Ok(())) => Ok(shard_id),
-            Ok(Err(e)) => {
-                self.messages_dropped.fetch_add(1, Ordering::AcqRel);
-                Err(e)
-            }
-            Err(_) => {
-                self.messages_dropped.fetch_add(1, Ordering::AcqRel);
-                Err(ShardError::Timeout)
-            }
+        if let Some(mut shard) = self.shards.get_mut(&shard_id) {
+            shard.push(message)?;
+            self.total_regular_messages.fetch_add(1, Ordering::AcqRel);
+            Ok(shard_id)
+        } else {
+            self.messages_dropped.fetch_add(1, Ordering::AcqRel);
+            Err(ShardError::NotFound)
         }
     }
 
     /// Push message to spread shard for reconnect-burst recovery.
     ///
     /// Called when a message's bi-temporal spread (t_system - t_event) exceeds
-    /// the high-spread threshold, indicating the message sat in a dead zone for
+    /// the adaptive threshold, indicating the message sat in a dead zone for
     /// a long time and has just arrived in a reconnect burst. These messages:
     ///   - Bypass the 80% backpressure gate (already stale, dropping makes it worse)
-    ///   - Bypass the 100ms push timeout (pre-allocated buffer, should be immediate)
     ///   - Bypass cadence rate limiting in the gateway (enforced by caller)
     ///
     /// The goal is to drain the reconnect burst as fast as possible.
-    pub async fn push_spread(&self, message: Message) -> Result<ShardId, ShardError> {
+    pub fn push_spread(&self, message: Message) -> Result<ShardId, ShardError> {
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
         if let Some(mut shard) = self.shards.get_mut(&self.spread_shard_id) {
@@ -200,9 +203,9 @@ impl ShardManager {
         self.spread_shard_id
     }
 
-    /// Push message to deadzone shard for immediate uplink when deadzone detected
-    /// Buffer is already pre-allocated during initialization for zero-latency access
-    pub async fn push_deadzone(&self, message: Message) -> Result<ShardId, ShardError> {
+    /// Push message to deadzone shard for immediate uplink when deadzone detected.
+    /// Buffer is pre-allocated at startup for zero allocation latency.
+    pub fn push_deadzone(&self, message: Message) -> Result<ShardId, ShardError> {
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
         if let Some(mut shard) = self.shards.get_mut(&self.deadzone_shard_id) {
@@ -219,13 +222,28 @@ impl ShardManager {
         self.deadzone_shard_id
     }
 
-    /// Drain all messages from a shard
+    /// Drain all messages from a shard.
+    /// Decrements the regular-messages atomic counter for regular shards so
+    /// the O(1) backpressure check stays accurate after draining.
     pub fn drain_shard(&self, shard_id: ShardId) -> Vec<Message> {
         if let Some(mut shard) = self.shards.get_mut(&shard_id) {
-            shard.drain()
+            let messages = shard.drain();
+            if self.is_regular_shard(shard_id) && !messages.is_empty() {
+                let count = messages.len() as u64;
+                let _ = self.total_regular_messages.fetch_update(
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                    |v| Some(v.saturating_sub(count)),
+                );
+            }
+            messages
         } else {
             Vec::new()
         }
+    }
+
+    fn is_regular_shard(&self, shard_id: ShardId) -> bool {
+        shard_id != self.deadzone_shard_id && shard_id != self.spread_shard_id
     }
 
     /// Get statistics across all shards
@@ -263,17 +281,11 @@ impl ShardManager {
         ShardId(1 + (hash % self.num_shards as u64))
     }
 
-    fn select_shard_for_message(&self, _message: &Message) -> ShardId {
-        // Load balancing: select from regular shards only.
-        // ShardId(0) is reserved for emergency deadzone uplinks.
-        // ShardId(num_shards) is reserved for spread burst-recovery.
-        // Neither should receive general traffic.
-        self.shards
-            .iter()
-            .filter(|entry| *entry.key() != ShardId(0) && *entry.key() != self.spread_shard_id)
-            .min_by_key(|entry| entry.value().len())
-            .map(|entry| *entry.key())
-            .unwrap_or_else(|| ShardId(1))
+    fn select_shard_for_message(&self) -> ShardId {
+        // O(1) round-robin across regular shards (ShardId(1)..ShardId(num_shards-1)).
+        // ShardId(0) is deadzone, ShardId(num_shards) is spread — both excluded.
+        let idx = self.round_robin.fetch_add(1, Ordering::Relaxed) % (self.num_shards as u64 - 1);
+        ShardId(1 + idx)
     }
 
     fn create_shard(&self, shard_id: ShardId) {

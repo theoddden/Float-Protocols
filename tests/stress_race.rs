@@ -33,7 +33,7 @@ async fn test_asts_toggle_stress() {
                     Bytes::from(&b"deadzone"[..]),
                     Priority::Emergency,
                 );
-                let _ = shard_manager_clone.push_deadzone(msg).await;
+                let _ = shard_manager_clone.push_deadzone(msg);
             }
         }
     });
@@ -61,7 +61,7 @@ async fn test_5000_concurrent_writes() {
                 Bytes::from(format!("packet_{}", i)),
                 Priority::Operational,
             );
-            shard_manager_clone.push(msg).await
+            shard_manager_clone.push(msg)
         });
         handles.push(handle);
     }
@@ -97,7 +97,7 @@ async fn test_backpressure_under_load() {
             Bytes::from(format!("fill_{}", i)),
             Priority::Operational,
         );
-        let _ = shard_manager_clone.push(msg).await;
+        let _ = shard_manager_clone.push(msg);
     }
 
     // Now try to push more - should hit backpressure
@@ -109,7 +109,7 @@ async fn test_backpressure_under_load() {
             Bytes::from(format!("overflow_{}", i)),
             Priority::Operational,
         );
-        if shard_manager_clone.push(msg).await.is_err() {
+        if shard_manager_clone.push(msg).is_err() {
             backpressure_count += 1;
         }
     }

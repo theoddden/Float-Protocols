@@ -157,4 +157,27 @@ impl Protocol {
     pub fn requires_compression(&self) -> bool {
         matches!(self, Protocol::VSAT | Protocol::HFVHF | Protocol::NIDD)
     }
+
+    /// Minimum bi-temporal spread (t_system - t_event) in milliseconds that
+    /// indicates a reconnect-burst scenario for this protocol.
+    ///
+    /// Tuned per protocol because dead-zone durations vary by orders of magnitude:
+    /// - Samsara (cellular): seconds of latency are normal, burst = >5s
+    /// - Iridium/RockBLOCK: polar/maritime routes, dead zones up to 8 hours
+    /// - Inmarsat C: open ocean, dead zones up to 12 hours
+    /// - VSAT: geosynchronous, latency is ~600ms RTT, burst = >3s
+    /// - HF/VHF: propagation-dependent, burst = >30s
+    /// - NIDD (NTN NB-IoT): designed for low-frequency small bursts = >10s
+    /// - ASTSpaceMobile: direct-to-cell, near-terrestrial latency = >1s
+    pub fn spread_burst_threshold_ms(&self) -> i64 {
+        match self {
+            Protocol::Samsara => 5_000,
+            Protocol::IridiumSBD | Protocol::RockBLOCK => 120_000,
+            Protocol::InmarsatC => 300_000,
+            Protocol::VSAT => 3_000,
+            Protocol::HFVHF => 30_000,
+            Protocol::NIDD => 10_000,
+            Protocol::ASTSpaceMobile => 1_000,
+        }
+    }
 }
