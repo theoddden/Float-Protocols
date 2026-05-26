@@ -29,6 +29,7 @@ flate2 = "1.0"  # Gzip compression for OTel bundles
 
 dashmap = "6.0"           # Lock-free concurrent hashmap for sharding
 parking_lot = "0.12"      # Non-poisoning mutex/rwlock, faster than std on the async hot path
+crossbeam-channel = "0.5" # Lock-free channels for per-shard worker queues
 
 # Logging
 log = { version = "0.4", default-features = false }

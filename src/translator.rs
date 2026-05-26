@@ -12,6 +12,9 @@ use crate::iridium_sbd::IridiumSBDMessage;
 use crate::protocol::{Message, Protocol};
 use crate::vsat::VSATMessage;
 use bytes::Bytes;
+use crossbeam_channel::{self, Receiver, Sender};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub struct Translator {
@@ -367,3 +370,53 @@ impl std::fmt::Display for TranslateError {
 }
 
 impl std::error::Error for TranslateError {}
+
+/// Pool of Translator instances per protocol for parallel translation.
+///
+/// Each protocol has its own pool (default 4 instances per protocol).
+/// Workers borrow a translator, translate, and return it to the pool.
+/// Uses crossbeam channels for lock-free borrowing/returning.
+pub struct TranslatorPool {
+    pools: HashMap<Protocol, Arc<ProtocolPool>>,
+}
+
+struct ProtocolPool {
+    tx: Sender<Translator>,
+    rx: Receiver<Translator>,
+}
+
+impl TranslatorPool {
+    /// Create a new translator pool with `pool_size` instances per protocol.
+    pub fn new(pool_size: usize) -> Self {
+        let mut pools = HashMap::new();
+        for protocol in [
+            Protocol::IridiumSBD,
+            Protocol::InmarsatC,
+            Protocol::VSAT,
+            Protocol::HFVHF,
+            Protocol::RockBLOCK,
+            Protocol::Samsara,
+        ] {
+            let (tx, rx) = crossbeam_channel::bounded(pool_size);
+            for _ in 0..pool_size {
+                let translator = Translator::new(100);
+                tx.send(translator).unwrap();
+            }
+            pools.insert(protocol, Arc::new(ProtocolPool { tx, rx }));
+        }
+        Self { pools }
+    }
+
+    /// Borrow a translator for the given protocol.
+    /// Returns None if pool is exhausted (caller should retry or drop).
+    pub fn borrow(&self, protocol: Protocol) -> Option<Translator> {
+        self.pools.get(&protocol)?.rx.try_recv().ok()
+    }
+
+    /// Return a translator to its protocol pool.
+    pub fn return_translator(&self, protocol: Protocol, translator: Translator) {
+        if let Some(pool) = self.pools.get(&protocol) {
+            let _ = pool.tx.try_send(translator);
+        }
+    }
+}

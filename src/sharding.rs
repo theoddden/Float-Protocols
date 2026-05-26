@@ -3,8 +3,12 @@
 //! Pre-shards memory into dedicated uplink buffers that are immediately available
 //! when a deadzone is detected, eliminating allocation latency during critical
 //! transitions from connected to disconnected states.
+//!
+//! Per-shard worker architecture: each shard has a lock-free crossbeam channel.
+//! Workers own the Receiver and drain messages, ShardManager holds Senders for push.
 
 use crate::protocol::{Message, Protocol};
+use crossbeam_channel::{self, Receiver, Sender};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -15,49 +19,35 @@ pub struct ShardId(pub u64);
 
 pub struct MemoryShard {
     _id: ShardId,
-    buffer: Vec<Message>,
+    tx: Sender<Message>,
     max_size: usize,
     last_access: Instant,
     is_deadzone_shard: bool, // Dedicated shard for deadzone uplink
 }
 
 impl MemoryShard {
-    pub fn new(id: ShardId, max_size: usize, is_deadzone_shard: bool) -> Self {
-        let mut shard = Self {
+    pub fn new(id: ShardId, max_size: usize, is_deadzone_shard: bool) -> (Self, Receiver<Message>) {
+        let (tx, rx) = crossbeam_channel::bounded(max_size);
+        let shard = Self {
             _id: id,
-            buffer: Vec::with_capacity(max_size),
+            tx,
             max_size,
             last_access: Instant::now(),
             is_deadzone_shard,
         };
-
-        // Pre-allocate buffer immediately for all shards
-        // This ensures immediate uplink capability when deadzone is detected
-        shard.buffer.reserve(max_size);
-
-        shard
+        (shard, rx)
     }
 
-    pub fn push(&mut self, message: Message) -> Result<(), ShardError> {
-        if self.buffer.len() >= self.max_size {
-            return Err(ShardError::Full);
-        }
-        self.buffer.push(message);
-        self.last_access = Instant::now();
-        Ok(())
-    }
-
-    pub fn drain(&mut self) -> Vec<Message> {
-        self.last_access = Instant::now();
-        std::mem::take(&mut self.buffer)
+    pub fn push(&self, message: Message) -> Result<(), ShardError> {
+        self.tx.try_send(message).map_err(|_| ShardError::Full)
     }
 
     pub fn len(&self) -> usize {
-        self.buffer.len()
+        self.tx.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
+        self.tx.is_empty()
     }
 
     pub fn last_access(&self) -> Instant {
@@ -71,6 +61,7 @@ impl MemoryShard {
 
 pub struct ShardManager {
     shards: DashMap<ShardId, MemoryShard>,
+    receivers: DashMap<ShardId, Receiver<Message>>,
     num_shards: usize,
     shard_size: usize,
     _next_shard_id: u64,
@@ -96,30 +87,29 @@ pub struct ShardManager {
 impl ShardManager {
     pub fn new(num_shards: usize, shard_size: usize) -> Self {
         let shards = DashMap::new();
+        let receivers = DashMap::new();
 
         // ShardId(0): dedicated deadzone shard (emergency, highest priority)
         let deadzone_shard_id = ShardId(0);
-        shards.insert(
-            deadzone_shard_id,
-            MemoryShard::new(deadzone_shard_id, shard_size, true),
-        );
+        let (deadzone_shard, deadzone_rx) = MemoryShard::new(deadzone_shard_id, shard_size, true);
+        shards.insert(deadzone_shard_id, deadzone_shard);
+        receivers.insert(deadzone_shard_id, deadzone_rx);
 
         // ShardId(1..num_shards): regular load-balanced shards
         for i in 1..num_shards {
-            shards.insert(
-                ShardId(i as u64),
-                MemoryShard::new(ShardId(i as u64), shard_size, false),
-            );
+            let shard_id = ShardId(i as u64);
+            let (shard, rx) = MemoryShard::new(shard_id, shard_size, false);
+            shards.insert(shard_id, shard);
+            receivers.insert(shard_id, rx);
         }
 
         // ShardId(num_shards): spread shard for reconnect-burst recovery.
         // Pre-allocated at startup so there is zero allocation latency when
         // a wide bi-temporal spread triggers routing here.
         let spread_shard_id = ShardId(num_shards as u64);
-        shards.insert(
-            spread_shard_id,
-            MemoryShard::new(spread_shard_id, shard_size, false),
-        );
+        let (spread_shard, spread_rx) = MemoryShard::new(spread_shard_id, shard_size, false);
+        shards.insert(spread_shard_id, spread_shard);
+        receivers.insert(spread_shard_id, spread_rx);
 
         // Regular shards are ShardId(1)..ShardId(num_shards-1) — (num_shards-1) total.
         // Backpressure fires at 80% of their combined capacity.
@@ -128,6 +118,7 @@ impl ShardManager {
 
         Self {
             shards,
+            receivers,
             num_shards,
             shard_size,
             _next_shard_id: num_shards as u64 + 1,
@@ -167,7 +158,7 @@ impl ShardManager {
         let shard_id = self.select_shard_for_message();
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
-        if let Some(mut shard) = self.shards.get_mut(&shard_id) {
+        if let Some(shard) = self.shards.get(&shard_id) {
             shard.push(message)?;
             self.total_regular_messages.fetch_add(1, Ordering::AcqRel);
             Ok(shard_id)
@@ -189,7 +180,7 @@ impl ShardManager {
     pub fn push_spread(&self, message: Message) -> Result<ShardId, ShardError> {
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
-        if let Some(mut shard) = self.shards.get_mut(&self.spread_shard_id) {
+        if let Some(shard) = self.shards.get(&self.spread_shard_id) {
             shard.push(message)?;
             Ok(self.spread_shard_id)
         } else {
@@ -208,7 +199,7 @@ impl ShardManager {
     pub fn push_deadzone(&self, message: Message) -> Result<ShardId, ShardError> {
         self.messages_allocated.fetch_add(1, Ordering::AcqRel);
 
-        if let Some(mut shard) = self.shards.get_mut(&self.deadzone_shard_id) {
+        if let Some(shard) = self.shards.get(&self.deadzone_shard_id) {
             shard.push(message)?;
             Ok(self.deadzone_shard_id)
         } else {
@@ -222,30 +213,79 @@ impl ShardManager {
         self.deadzone_shard_id
     }
 
-    /// Drain all messages from a shard.
-    /// Decrements the regular-messages atomic counter for regular shards so
-    /// the O(1) backpressure check stays accurate after draining.
+    /// Get the receiver for a shard (for workers to own).
+    /// Returns None if shard doesn't exist.
+    pub fn get_receiver(&self, shard_id: ShardId) -> Option<Receiver<Message>> {
+        self.receivers.remove(&shard_id).map(|(_, rx)| rx)
+    }
+
+    /// Drain all messages from a shard (legacy API for spread shard drain task).
+    /// For regular shards, workers drain via receiver. This is only used for
+    /// the spread shard which doesn't have a dedicated worker.
     pub fn drain_shard(&self, shard_id: ShardId) -> Vec<Message> {
-        if let Some(mut shard) = self.shards.get_mut(&shard_id) {
-            let messages = shard.drain();
-            if self.is_regular_shard(shard_id) && !messages.is_empty() {
-                let count = messages.len() as u64;
-                let _ = self.total_regular_messages.fetch_update(
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                    |v| Some(v.saturating_sub(count)),
-                );
+        let mut messages = Vec::new();
+        if let Some(rx) = self.receivers.get(&shard_id) {
+            while let Ok(msg) = rx.try_recv() {
+                messages.push(msg);
             }
-            messages
-        } else {
-            Vec::new()
         }
+        if self.is_regular_shard(shard_id) && !messages.is_empty() {
+            let count = messages.len() as u64;
+            let _ = self.total_regular_messages.fetch_update(
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |v| Some(v.saturating_sub(count)),
+            );
+        }
+        messages
     }
 
     fn is_regular_shard(&self, shard_id: ShardId) -> bool {
         shard_id != self.deadzone_shard_id && shard_id != self.spread_shard_id
     }
+}
 
+/// Worker that drains a single shard and processes messages.
+///
+/// Workers own the Receiver for their shard and run in an async task,
+/// continuously draining messages and invoking the callback for each.
+pub struct ShardWorker {
+    shard_id: ShardId,
+    receiver: Receiver<Message>,
+}
+
+impl ShardWorker {
+    /// Create a new worker for the given shard.
+    pub fn new(shard_id: ShardId, receiver: Receiver<Message>) -> Self {
+        Self { shard_id, receiver }
+    }
+
+    /// Run the worker, processing messages via the callback.
+    /// The callback receives the shard_id and the message.
+    pub async fn run<F, Fut>(self, mut callback: F)
+    where
+        F: FnMut(ShardId, Message) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let shard_id = self.shard_id;
+        let receiver = self.receiver;
+        tokio::spawn(async move {
+            loop {
+                match receiver.recv() {
+                    Ok(message) => {
+                        callback(shard_id, message).await;
+                    }
+                    Err(_) => {
+                        // Channel closed, worker exits
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
+
+impl ShardManager {
     /// Get statistics across all shards
     pub fn stats(&self) -> ShardStats {
         let total_messages: usize = self.shards.iter().map(|s| s.len()).sum();
@@ -289,9 +329,11 @@ impl ShardManager {
     }
 
     fn create_shard(&self, shard_id: ShardId) {
-        self.shards
-            .entry(shard_id)
-            .or_insert_with(|| MemoryShard::new(shard_id, self.shard_size, false));
+        if !self.shards.contains_key(&shard_id) {
+            let (shard, rx) = MemoryShard::new(shard_id, self.shard_size, false);
+            self.shards.insert(shard_id, shard);
+            self.receivers.insert(shard_id, rx);
+        }
     }
 
     /// Get leak detection statistics
