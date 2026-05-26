@@ -93,8 +93,8 @@ pub struct TelemetryConfig {
 }
 
 pub struct Gateway {
-    #[allow(dead_code)]
-    translator_pool: Arc<TranslatorPool>,
+    translator: Translator, // Fallback for single-message paths (emergency, spread drain)
+    translator_pool: Arc<TranslatorPool>, // Pool for batched translation in shard workers
     batcher: AsyncBatcher,
     cache: AsyncCache,
     circuit_breaker: CircuitBreaker,
@@ -119,6 +119,7 @@ impl Gateway {
         asts_credentials: Option<ASTSCredentials>,
         telemetry_config: TelemetryConfig,
     ) -> Arc<Self> {
+        let translator = Translator::new(100);
         let translator_pool = Arc::new(TranslatorPool::new(4));
         // Extract batch_rx BEFORE moving batcher into the struct.
         let mut batcher = AsyncBatcher::new(10, batch_timeout, buffer_size);
@@ -144,6 +145,7 @@ impl Gateway {
         );
 
         let gateway = Arc::new(Self {
+            translator,
             translator_pool,
             batcher,
             cache,
@@ -228,7 +230,7 @@ impl Gateway {
         self.snapshot_manager
             .create_snapshot(vec![message.clone()], message.protocol, device_id)
             .await;
-        if let Ok(translated) = Translator::translate_sync(message.clone()) {
+        if let Ok(translated) = self.translator.translate_sync(message.clone()) {
             self.cache
                 .set(message.protocol, &message.data, translated.clone())
                 .await;
@@ -347,20 +349,37 @@ impl Gateway {
     ///
     /// Acquires cache write lock and snapshot write lock once each for the batch,
     /// amortizing lock overhead across all N messages.
+    /// Uses TranslatorPool for parallel translation across protocols.
     async fn process_translated_batch(&self, messages: Vec<Message>) {
         if messages.is_empty() {
             return;
         }
         let start = Instant::now();
 
-        // Translate all messages; collect (original, translated) pairs
+        // Translate all messages using TranslatorPool; collect (original, translated) pairs
         let mut pairs: Vec<(Message, Message)> = Vec::with_capacity(messages.len());
         for msg in messages {
-            match Translator::translate_sync(msg.clone()) {
-                Ok(translated) => pairs.push((msg, translated)),
-                Err(e) => {
-                    tracing::warn!(error = %e, protocol = %msg.protocol, "Translation failed");
-                    self.metrics.record_error();
+            let protocol = msg.protocol;
+            // Borrow translator from pool for this protocol
+            if let Some(translator) = self.translator_pool.borrow(protocol) {
+                match translator.translate_sync(msg.clone()) {
+                    Ok(translated) => pairs.push((msg, translated)),
+                    Err(e) => {
+                        tracing::warn!(error = %e, protocol = %protocol, "Translation failed");
+                        self.metrics.record_error();
+                    }
+                }
+                // Return translator to pool
+                self.translator_pool.return_translator(protocol, translator);
+            } else {
+                // Pool exhausted — fall back to static translation
+                tracing::warn!(protocol = %protocol, "Translator pool exhausted, using static fallback");
+                match self.translator.translate_sync(msg.clone()) {
+                    Ok(translated) => pairs.push((msg, translated)),
+                    Err(e) => {
+                        tracing::warn!(error = %e, protocol = %protocol, "Static translation failed");
+                        self.metrics.record_error();
+                    }
                 }
             }
         }
@@ -405,7 +424,7 @@ impl Gateway {
             "Draining spread shard burst-recovery messages"
         );
         for message in messages {
-            let translated = match Translator::translate_sync(message.clone()) {
+            let translated = match self.translator.translate_sync(message.clone()) {
                 Ok(t) => t,
                 Err(e) => {
                     tracing::warn!(

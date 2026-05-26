@@ -2,9 +2,7 @@
 //!
 //! Fixed-size stack buffers can overflow with unexpected payloads.
 //! This module provides dynamic sizing with bounds checking and graceful degradation.
-
-use std::alloc::{alloc, dealloc, realloc, Layout};
-use std::ptr::NonNull;
+//! Uses Vec<u8> internally for safe, automatic memory management.
 
 #[derive(Debug)]
 pub enum BufferError {
@@ -14,10 +12,9 @@ pub enum BufferError {
 }
 
 /// Dynamic buffer with configurable maximum size
+/// Uses Vec<u8> internally for safe memory management (no unsafe code)
 pub struct DynamicBuffer {
-    ptr: Option<NonNull<u8>>,
-    capacity: usize,
-    size: usize,
+    buffer: Vec<u8>,
     max_capacity: usize,
 }
 
@@ -30,25 +27,8 @@ impl DynamicBuffer {
             });
         }
 
-        let ptr = if initial_capacity == 0 {
-            None
-        } else {
-            let layout =
-                Layout::array::<u8>(initial_capacity).map_err(|_| BufferError::InvalidSize)?;
-
-            unsafe {
-                let ptr = alloc(layout);
-                if ptr.is_null() {
-                    return Err(BufferError::AllocationFailed);
-                }
-                NonNull::new(ptr)
-            }
-        };
-
         Ok(Self {
-            ptr,
-            capacity: initial_capacity,
-            size: 0,
+            buffer: Vec::with_capacity(initial_capacity),
             max_capacity,
         })
     }
@@ -63,88 +43,34 @@ impl DynamicBuffer {
         }
 
         // Grow buffer if needed
-        if data.len() > self.capacity {
-            self.grow(data.len())?;
+        if data.len() > self.buffer.capacity() {
+            let new_cap = data.len().next_power_of_two().min(self.max_capacity);
+            self.buffer.reserve(new_cap);
         }
 
         // Write data
-        unsafe {
-            if let Some(ptr) = self.ptr {
-                std::ptr::copy_nonoverlapping(data.as_ptr(), ptr.as_ptr(), data.len());
-            }
-        }
-
-        self.size = data.len();
-        Ok(())
-    }
-
-    /// Grow buffer to at least new_capacity
-    fn grow(&mut self, new_capacity: usize) -> Result<(), BufferError> {
-        if new_capacity > self.max_capacity {
-            return Err(BufferError::TooLarge {
-                requested: new_capacity,
-                max: self.max_capacity,
-            });
-        }
-
-        // Calculate new capacity (power of 2 for efficiency)
-        let new_cap = new_capacity.next_power_of_two().min(self.max_capacity);
-
-        unsafe {
-            let new_layout = Layout::array::<u8>(new_cap).map_err(|_| BufferError::InvalidSize)?;
-
-            let new_ptr = if let Some(old_ptr) = self.ptr {
-                let old_layout =
-                    Layout::array::<u8>(self.capacity).map_err(|_| BufferError::InvalidSize)?;
-
-                let ptr = realloc(old_ptr.as_ptr(), old_layout, new_layout.size());
-                if ptr.is_null() {
-                    return Err(BufferError::AllocationFailed);
-                }
-                NonNull::new(ptr)
-            } else {
-                let ptr = alloc(new_layout);
-                if ptr.is_null() {
-                    return Err(BufferError::AllocationFailed);
-                }
-                NonNull::new(ptr)
-            };
-
-            self.ptr = new_ptr;
-            self.capacity = new_cap;
-        }
+        self.buffer.clear();
+        self.buffer.extend_from_slice(data);
 
         Ok(())
     }
 
     /// Get buffer as slice
     pub fn as_slice(&self) -> &[u8] {
-        unsafe {
-            if let Some(ptr) = self.ptr {
-                std::slice::from_raw_parts(ptr.as_ptr(), self.size)
-            } else {
-                &[]
-            }
-        }
+        &self.buffer
     }
 
     /// Get buffer as mutable slice
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        unsafe {
-            if let Some(ptr) = self.ptr {
-                std::slice::from_raw_parts_mut(ptr.as_ptr(), self.size)
-            } else {
-                &mut []
-            }
-        }
+        &mut self.buffer
     }
 
     pub fn len(&self) -> usize {
-        self.size
+        self.buffer.len()
     }
 
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.buffer.capacity()
     }
 
     pub fn max_capacity(&self) -> usize {
@@ -152,12 +78,12 @@ impl DynamicBuffer {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.size == 0
+        self.buffer.is_empty()
     }
 
     /// Clear buffer (doesn't deallocate)
     pub fn clear(&mut self) {
-        self.size = 0;
+        self.buffer.clear();
     }
 
     /// Reset buffer to initial capacity (deallocates if larger than initial)
@@ -169,30 +95,8 @@ impl DynamicBuffer {
             });
         }
 
-        unsafe {
-            if let Some(ptr) = self.ptr {
-                let layout =
-                    Layout::array::<u8>(self.capacity).map_err(|_| BufferError::InvalidSize)?;
-                dealloc(ptr.as_ptr(), layout);
-            }
-
-            self.ptr = None;
-            self.capacity = 0;
-            self.size = 0;
-        }
-
+        self.buffer = Vec::with_capacity(initial_capacity);
         Ok(())
-    }
-}
-
-impl Drop for DynamicBuffer {
-    fn drop(&mut self) {
-        unsafe {
-            if let Some(ptr) = self.ptr {
-                let layout = Layout::array::<u8>(self.capacity).map_err(|_| ()).unwrap(); // We know the layout is valid
-                dealloc(ptr.as_ptr(), layout);
-            }
-        }
     }
 }
 

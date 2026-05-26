@@ -264,7 +264,8 @@ impl Translator {
 
     /// Synchronous protocol translation for cache-correct hot path use.
     /// Returns a translated Message ready to send to ASTS, preserving bi-temporal timestamps.
-    pub fn translate_sync(message: Message) -> Result<Message, TranslateError> {
+    /// Instance method to enable TranslatorPool usage for parallel translation.
+    pub fn translate_sync(&self, message: Message) -> Result<Message, TranslateError> {
         let translated_data = match message.protocol {
             Protocol::IridiumSBD => Self::decode_iridium_sbd(&message.data)?,
             Protocol::InmarsatC => Self::decode_inmarsat_c(&message.data)?,
