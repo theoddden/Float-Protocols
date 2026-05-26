@@ -229,11 +229,14 @@ async fn test_cache_hit_in_translation_flow() {
 
     let _ = gateway.send(message1).await;
 
-    // Wait for first message to be processed and cached
-    for _ in 0..50 {
+    // Wait for message1 to be fully processed (batcher flush + shard worker + cache write).
+    // We poll for cache_misses > 0 rather than messages_translated, because
+    // messages_translated is incremented immediately on send() but cache_misses is only
+    // incremented after process_incoming_batch runs (batcher timeout ~100ms + worker).
+    for _ in 0..60 {
         sleep(Duration::from_millis(50)).await;
         let metrics = gateway.metrics().snapshot();
-        if metrics.messages_translated >= 1 {
+        if metrics.cache_misses > 0 {
             break;
         }
     }

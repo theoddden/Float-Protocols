@@ -104,6 +104,22 @@ impl BiTemporalStore {
         messages.push_back(message);
     }
 
+    /// Store a batch of messages with a single write lock acquisition.
+    /// Replaces N `store()` calls (N lock acquires) with 1, amortizing
+    /// the async lock overhead across the entire incoming batch.
+    pub async fn store_batch(&self, batch: &[Message]) {
+        if batch.is_empty() {
+            return;
+        }
+        let mut messages = self.messages.write().await;
+        for message in batch {
+            if messages.len() >= self.max_messages {
+                messages.pop_front();
+            }
+            messages.push_back(message.clone());
+        }
+    }
+
     /// Query messages by valid time (what actually happened)
     pub async fn query_valid_time(&self, start_ms: u64, end_ms: u64) -> Vec<Message> {
         self.query(BiTemporalQuery::new(QueryTime::ValidTime, start_ms, end_ms))

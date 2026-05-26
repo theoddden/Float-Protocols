@@ -263,7 +263,7 @@ impl ShardWorker {
 
     /// Run the worker, processing messages via the callback.
     /// The callback receives the shard_id and the message.
-    pub async fn run<F, Fut>(self, mut callback: F)
+    pub fn run<F, Fut>(self, mut callback: F)
     where
         F: FnMut(ShardId, Message) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -273,6 +273,40 @@ impl ShardWorker {
         tokio::spawn(async move {
             while let Ok(message) = receiver.recv() {
                 callback(shard_id, message).await;
+            }
+        });
+    }
+
+    /// Batched variant: parks on `spawn_blocking` waiting for the first message,
+    /// then greedily drains up to `batch_size` more via non-blocking `try_recv`.
+    /// Calling `spawn_blocking` for the wait keeps the tokio thread free between
+    /// batches, avoiding starvation of other tasks.
+    pub fn run_batched<F, Fut>(self, batch_size: usize, mut callback: F)
+    where
+        F: FnMut(ShardId, Vec<Message>) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let shard_id = self.shard_id;
+        let receiver = self.receiver;
+        tokio::spawn(async move {
+            loop {
+                // Park a blocking thread until the first message arrives.
+                // crossbeam Receiver is Clone + Send so we can move a clone in.
+                let rx = receiver.clone();
+                let first = match tokio::task::spawn_blocking(move || rx.recv().ok()).await {
+                    Ok(Some(msg)) => msg,
+                    _ => break, // channel disconnected
+                };
+                let mut batch = Vec::with_capacity(batch_size);
+                batch.push(first);
+                // Non-blocking greedy drain for the rest of the batch
+                while batch.len() < batch_size {
+                    match receiver.try_recv() {
+                        Ok(msg) => batch.push(msg),
+                        Err(_) => break,
+                    }
+                }
+                callback(shard_id, batch).await;
             }
         });
     }

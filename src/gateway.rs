@@ -17,7 +17,7 @@ use crate::clock_reconciliation::{ClockReconciler, NetworkTimeSource};
 use crate::metrics::Metrics;
 use crate::protocol::{Message, Priority, Protocol};
 use crate::reliability::{CircuitBreaker, RetryPolicy};
-use crate::sharding::ShardManager;
+use crate::sharding::{ShardId, ShardManager, ShardWorker};
 use crate::snapshot::SnapshotManager;
 use crate::translator::{Translator, TranslatorPool};
 use parking_lot::Mutex;
@@ -95,7 +95,7 @@ pub struct TelemetryConfig {
 pub struct Gateway {
     #[allow(dead_code)]
     translator_pool: Arc<TranslatorPool>,
-    _batcher: AsyncBatcher,
+    batcher: AsyncBatcher,
     cache: AsyncCache,
     circuit_breaker: CircuitBreaker,
     _retry_policy: RetryPolicy,
@@ -108,7 +108,7 @@ pub struct Gateway {
     ewma_state: Mutex<EwmaSpreadState>,
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
-    input_tx: mpsc::Sender<Message>,
+    // input_tx removed: send() routes through batcher directly
 }
 
 impl Gateway {
@@ -119,16 +119,19 @@ impl Gateway {
         asts_credentials: Option<ASTSCredentials>,
         telemetry_config: TelemetryConfig,
     ) -> Arc<Self> {
-        let translator_pool = Arc::new(TranslatorPool::new(4)); // 4 instances per protocol
-        let batcher = AsyncBatcher::new(10, batch_timeout, buffer_size);
+        let translator_pool = Arc::new(TranslatorPool::new(4));
+        // Extract batch_rx BEFORE moving batcher into the struct.
+        let mut batcher = AsyncBatcher::new(10, batch_timeout, buffer_size);
+        let batch_rx = batcher
+            .take_batch_receiver()
+            .expect("batch receiver taken before construction");
         let cache = AsyncCache::new(1000, cache_ttl);
         let circuit_breaker = CircuitBreaker::new(5, Duration::from_secs(30));
         let retry_policy = RetryPolicy::new(3, Duration::from_millis(100));
         let metrics = Arc::new(Metrics::new());
-        let shard_manager = Arc::new(ShardManager::new(8, 1000)); // 8 shards, 1000 messages each
+        let shard_manager = Arc::new(ShardManager::new(8, 1000));
         let snapshot_manager = Arc::new(SnapshotManager::new(100, Duration::from_secs(300)));
-        let bitemporal_store = Arc::new(BiTemporalStore::new(10000)); // Store 10k messages
-        let (input_tx, input_rx) = mpsc::channel(buffer_size);
+        let bitemporal_store = Arc::new(BiTemporalStore::new(10000));
 
         let mut cadence_translator = CadenceTranslator::new();
         for rule in CadenceTranslator::default_iridium_to_asts_rules() {
@@ -142,7 +145,7 @@ impl Gateway {
 
         let gateway = Arc::new(Self {
             translator_pool,
-            _batcher: batcher,
+            batcher,
             cache,
             circuit_breaker,
             _retry_policy: retry_policy,
@@ -155,36 +158,38 @@ impl Gateway {
             ewma_state: Mutex::new(EwmaSpreadState::new()),
             asts_credentials,
             telemetry_config,
-            input_tx,
         });
 
-        // TODO: Per-shard workers for parallel processing (optimization 1)
-        // Workers are spawned but disabled for now to maintain test compatibility.
-        // To enable: route send() through shards instead of process_loop.
-        // let num_shards = 8;
-        // for shard_id in 1..num_shards {
-        //     let shard_id = ShardId(shard_id as u64);
-        //     if let Some(receiver) = shard_manager.get_receiver(shard_id) {
-        //         let worker = ShardWorker::new(shard_id, receiver);
-        //         let gateway_clone = Arc::clone(&gateway);
-        //         let _ = worker.run(move |_shard_id, message| {
-        //             let gateway = Arc::clone(&gateway_clone);
-        //             async move {
-        //                 gateway.process_shard_message(message).await;
-        //             }
-        //         });
-        //     }
-        // }
+        // Spawn per-shard workers for regular shards (1 through num_shards-2).
+        // Each worker parks on spawn_blocking until a message arrives, then
+        // greedily drains up to batch_size=10 and calls process_translated_batch.
+        // ShardId(0) = deadzone  (emergency only, never consumed by a worker)
+        // ShardId(8) = spread    (drained by background 50ms task)
+        let num_regular_shards = 8usize;
+        for shard_idx in 1..num_regular_shards {
+            let shard_id = ShardId(shard_idx as u64);
+            if let Some(receiver) = shard_manager.get_receiver(shard_id) {
+                let worker = ShardWorker::new(shard_id, receiver);
+                let gw = Arc::clone(&gateway);
+                worker.run_batched(10, move |_sid, messages| {
+                    let gw = Arc::clone(&gw);
+                    async move { gw.process_translated_batch(messages).await }
+                });
+            }
+        }
 
-        // Spawn main processing loop for direct input (full routing logic)
-        let gateway_clone = Arc::clone(&gateway);
+        // Spawn batcher consumer: drains the batcher output channel and routes
+        // each batch through process_incoming_batch (clock reconcile, bitemporal
+        // store, EWMA, cadence filter, cache check, shard push).
+        let gw = Arc::clone(&gateway);
         tokio::spawn(async move {
-            gateway_clone.process_loop(input_rx).await;
+            let mut rx = batch_rx;
+            while let Some(batch) = rx.recv().await {
+                gw.process_incoming_batch(batch).await;
+            }
         });
 
-        // Spawn background spread-shard drainer.
-        // Every 50ms, drain any messages buffered in the spread shard during
-        // reconnect bursts and translate+emit them directly, bypassing routing.
+        // Spawn background spread-shard drainer (every 50ms).
         let drain_clone = Arc::clone(&gateway);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -198,198 +203,169 @@ impl Gateway {
         gateway
     }
 
-    async fn process_loop(&self, mut input_rx: mpsc::Receiver<Message>) {
-        while let Some(message) = input_rx.recv().await {
-            self.process_message(message).await;
-        }
+    /// djb2 hash of message payload used as a surrogate device ID.
+    fn djb2_hash(data: &bytes::Bytes) -> u64 {
+        data.iter().fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64))
     }
 
-    /// Process a message from a shard worker.
-    /// Uses the TranslatorPool for parallel translation.
-    #[allow(dead_code)]
-    async fn process_shard_message(&self, message: Message) {
-        let start = Instant::now();
-        let protocol = message.protocol;
-
-        // Borrow a translator from the pool
-        let translator = match self.translator_pool.borrow(protocol) {
-            Some(t) => t,
-            None => {
-                // Pool exhausted, drop message (backpressure)
-                self.metrics.record_error();
-                return;
-            }
-        };
-
-        // Translate using the borrowed translator
-        let translated = match Translator::translate_sync(message.clone()) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(error = %e, protocol = %protocol, "Shard translation failed");
-                self.metrics.record_error();
-                self.translator_pool.return_translator(protocol, translator);
-                return;
-            }
-        };
-
-        // Return translator to pool
-        self.translator_pool.return_translator(protocol, translator);
-
-        // Cache, snapshot, emit
-        self.cache
-            .set(message.protocol, &message.data, translated.clone())
-            .await;
-        self.snapshot_manager
-            .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile)
-            .await;
-        self.send_to_asts(translated).await;
-        self.metrics.record_latency(start.elapsed());
-        self.metrics.increment_translated();
-    }
-
-    async fn process_message(&self, message: Message) {
+    /// Emergency fast path: bypasses the batcher entirely.
+    /// Pushes to the dedicated deadzone shard, snapshots, translates, and emits.
+    /// This path MUST complete in <2ms to satisfy the emergency latency SLA.
+    async fn process_emergency(&self, message: Message) {
         let start = Instant::now();
         let mut message = message;
-
-        // Apply clock reconciliation: correct drifted device t_event to network time.
-        // Use a fast djb2 hash of the payload as a surrogate device ID.
-        let device_id: u64 = message
-            .data
-            .iter()
-            .fold(5381u64, |h, &b| h.wrapping_mul(33).wrapping_add(b as u64));
+        let device_id = Self::djb2_hash(&message.data);
         {
             let reconciler = self.clock_reconciler.lock();
             if let Some(corrected) = reconciler.reconcile(device_id, message.t_event) {
                 message.t_event = corrected;
             }
         }
-
-        // Store message in bi-temporal store for insurance underwriting and trade compliance
         self.bitemporal_store.store(message.clone()).await;
         self.metrics.record_protocol(message.protocol);
-
-        // Compute bi-temporal spread immediately after reconciliation and
-        // update the EWMA state. The adaptive threshold is:
-        //   max(protocol_base_ms, ewma_spread + 3 * ewma_abs_deviation)
-        // This prevents false positives when chronic latency is near the
-        // protocol base, while remaining sensitive to sudden reconnect bursts.
-        let spread_ms = message.spread_ms();
-        let threshold_ms = {
-            let mut ewma = self.ewma_state.lock();
-            ewma.update(spread_ms);
-            ewma.adaptive_threshold_ms(message.protocol.spread_burst_threshold_ms())
-        };
-        let is_high_spread = spread_ms > threshold_ms;
-
-        // Emergency path: dedicated deadzone shard, unconditional
-        if message.is_emergency() {
-            let _ = self.shard_manager.push_deadzone(message.clone());
-            let snapshot_id = self
-                .snapshot_manager
-                .create_snapshot(vec![message.clone()], message.protocol)
-                .await;
-            tracing::debug!(
-                "Emergency message sent to deadzone shard, snapshot: {}",
-                snapshot_id
-            );
-        }
-
-        // Spread routing: high-spread messages are reconnect-burst candidates.
-        //
-        // When a device exits a dead zone, accumulated messages arrive all at once
-        // with large t_system - t_event spreads. Applying cadence throttling on top
-        // of already-stale messages compounds the delay. Instead:
-        //   1. Route to the dedicated spread shard (pre-allocated, no backpressure gate)
-        //   2. Skip cadence limiting entirely
-        //   3. Record metric so operators can observe burst events
-        //
-        // Normal messages continue through the cadence check and regular shards.
-        if is_high_spread && !message.is_emergency() {
-            self.metrics.record_spread_shard();
-            match self.shard_manager.push_spread(message.clone()) {
-                Ok(shard_id) => tracing::info!(
-                    spread_ms,
-                    protocol = %message.protocol,
-                    shard = shard_id.0,
-                    "Reconnect burst: routed to spread shard, cadence bypass"
-                ),
-                Err(e) => tracing::warn!(
-                    error = %e,
-                    spread_ms,
-                    "Spread shard push failed, continuing to translate"
-                ),
-            }
-        } else if !message.is_emergency() {
-            // Normal path: apply cadence limiting for IridiumSBD to prevent ASTS flooding
-            if message.protocol == Protocol::IridiumSBD && message.priority != Priority::Emergency {
-                let action = {
-                    let mut ct = self.cadence_translator.lock();
-                    ct.translate_message(
-                        "telemetry",
-                        Protocol::IridiumSBD,
-                        message.priority.clone(),
-                    )
-                };
-                if matches!(action, TranslationAction::Drop) {
-                    tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
-                    return;
-                }
-            }
-
-            // Normal shard push with backpressure
-            match self.shard_manager.push(message.clone()) {
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        protocol = %message.protocol,
-                        "Failed to push message to shard"
-                    );
-                    self.metrics.record_error();
-                    return;
-                }
-            }
-        }
-
-        // Cache check shared across all routing paths
-        if let Some(cached) = self
-            .cache
-            .get(message.protocol, &message.data, message.t_event)
-            .await
-        {
-            self.metrics.record_cache_hit();
-            self.metrics.increment_translated();
-            self.send_to_asts(cached).await;
-            return;
-        }
-
-        self.metrics.record_cache_miss();
-
-        // Synchronously translate to get the actual ASTS-format message before caching.
-        let translated = match Translator::translate_sync(message.clone()) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(error = %e, protocol = %message.protocol, "Translation failed");
-                self.metrics.record_error();
-                return;
-            }
-        };
-
-        // Record latency after successful sync translation
-        self.metrics.record_latency(start.elapsed());
-
-        // Cache the translated message keyed by original raw data + t_event
-        self.cache
-            .set(message.protocol, &message.data, translated.clone())
-            .await;
-
-        // Create snapshot of translated message for fast uplink building
+        let _ = self.shard_manager.push_deadzone(message.clone());
         self.snapshot_manager
-            .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile)
+            .create_snapshot(vec![message.clone()], message.protocol, device_id)
+            .await;
+        if let Ok(translated) = Translator::translate_sync(message.clone()) {
+            self.cache.set(message.protocol, &message.data, translated.clone()).await;
+            self.send_to_asts(translated).await;
+        } else {
+            self.metrics.record_error();
+        }
+        self.metrics.record_latency(start.elapsed());
+    }
+
+    /// Process a batch of normal (non-emergency) messages from the batcher output.
+    ///
+    /// Steps (each with a single lock acquisition per step for the whole batch):
+    ///   1. Clock-reconcile all messages (one parking_lot lock for batch)
+    ///   2. Bi-temporal store batch (one tokio RwLock write for batch)
+    ///   3. EWMA update + spread partition + cadence filter (one parking_lot lock each)
+    ///   4. Batch cache lookup (one parking_lot read lock for batch)
+    ///   5. Cache hits → emit directly; cache misses → push to shard workers
+    async fn process_incoming_batch(&self, batch: Vec<Message>) {
+        if batch.is_empty() { return; }
+
+        // 1. Clock reconcile — acquire once for entire batch
+        let reconciled: Vec<Message> = {
+            let reconciler = self.clock_reconciler.lock();
+            batch.into_iter().map(|mut msg| {
+                let device_id = Self::djb2_hash(&msg.data);
+                if let Some(corrected) = reconciler.reconcile(device_id, msg.t_event) {
+                    msg.t_event = corrected;
+                }
+                self.metrics.record_protocol(msg.protocol);
+                msg
+            }).collect()
+        };
+
+        // 2. Bi-temporal store — one write lock for entire batch
+        self.bitemporal_store.store_batch(&reconciled).await;
+
+        // 3. EWMA + spread partition + cadence filter — one lock each
+        let (spread_msgs, normal_msgs): (Vec<Message>, Vec<Message>) = {
+            let mut ewma = self.ewma_state.lock();
+            let mut ct = self.cadence_translator.lock();
+            let mut spread = Vec::new();
+            let mut normal = Vec::new();
+            for msg in reconciled {
+                ewma.update(msg.spread_ms());
+                let threshold = ewma.adaptive_threshold_ms(msg.protocol.spread_burst_threshold_ms());
+                if msg.spread_ms() > threshold {
+                    spread.push(msg);
+                } else {
+                    // Apply cadence limiting for IridiumSBD
+                    if msg.protocol == Protocol::IridiumSBD
+                        && msg.priority != Priority::Emergency
+                        && matches!(
+                            ct.translate_message("telemetry", Protocol::IridiumSBD, msg.priority.clone()),
+                            TranslationAction::Drop
+                        )
+                    {
+                        tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
+                        continue;
+                    }
+                    normal.push(msg);
+                }
+            }
+            (spread, normal)
+        };
+
+        // Route spread messages to spread shard (background drainer handles them)
+        for msg in spread_msgs {
+            self.metrics.record_spread_shard();
+            if let Err(e) = self.shard_manager.push_spread(msg) {
+                tracing::warn!(error = %e, "Spread shard push failed");
+            }
+        }
+
+        if normal_msgs.is_empty() { return; }
+
+        // 4. Batch cache lookup — one read lock for entire batch
+        let cache_results = self.cache.get_batch(
+            &normal_msgs.iter().map(|m| (m.protocol, &m.data)).collect::<Vec<_>>(),
+        );
+
+        // 5. Route: hits → emit now; misses → push to shard workers
+        for (msg, cached) in normal_msgs.into_iter().zip(cache_results) {
+            match cached {
+                Some(translated) => {
+                    self.metrics.record_cache_hit();
+                    self.send_to_asts(translated).await;
+                }
+                None => {
+                    self.metrics.record_cache_miss();
+                    if let Err(e) = self.shard_manager.push(msg) {
+                        tracing::warn!(error = %e, "Shard push failed after cache miss");
+                        self.metrics.record_error();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Translate, cache, snapshot, and emit a batch of messages from a shard worker.
+    ///
+    /// Acquires cache write lock and snapshot write lock once each for the batch,
+    /// amortizing lock overhead across all N messages.
+    async fn process_translated_batch(&self, messages: Vec<Message>) {
+        if messages.is_empty() { return; }
+        let start = Instant::now();
+
+        // Translate all messages; collect (original, translated) pairs
+        let mut pairs: Vec<(Message, Message)> = Vec::with_capacity(messages.len());
+        for msg in messages {
+            match Translator::translate_sync(msg.clone()) {
+                Ok(translated) => pairs.push((msg, translated)),
+                Err(e) => {
+                    tracing::warn!(error = %e, protocol = %msg.protocol, "Translation failed");
+                    self.metrics.record_error();
+                }
+            }
+        }
+        if pairs.is_empty() { return; }
+
+        // Batch cache set — one write lock
+        let cache_entries: Vec<(Protocol, bytes::Bytes, Message)> = pairs.iter()
+            .map(|(orig, t)| (orig.protocol, orig.data.clone(), t.clone()))
+            .collect();
+        self.cache.set_batch(cache_entries).await;
+
+        // Batch snapshot — one write lock; use first message's device_id
+        let device_id = Self::djb2_hash(&pairs[0].0.data);
+        let translated_msgs: Vec<Message> = pairs.into_iter().map(|(_, t)| t).collect();
+        self.snapshot_manager
+            .create_batch_snapshot(translated_msgs.clone(), Protocol::ASTSpaceMobile, device_id)
             .await;
 
-        self.send_to_asts(translated).await;
+        // Emit all
+        for translated in translated_msgs {
+            self.send_to_asts(translated).await;
+        }
+        self.metrics.record_latency(start.elapsed());
     }
+
 
     /// Drain the spread shard and translate+emit all buffered messages directly.
     ///
@@ -422,8 +398,9 @@ impl Gateway {
             self.cache
                 .set(message.protocol, &message.data, translated.clone())
                 .await;
+            let device_id = Self::djb2_hash(&message.data);
             self.snapshot_manager
-                .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile)
+                .create_snapshot(vec![translated.clone()], Protocol::ASTSpaceMobile, device_id)
                 .await;
             self.send_to_asts(translated).await;
             self.metrics.increment_translated();
@@ -453,7 +430,12 @@ impl Gateway {
 
     pub async fn send(&self, message: Message) -> Result<(), mpsc::error::SendError<Message>> {
         self.metrics.increment_translated();
-        self.input_tx.send(message).await
+        if message.is_emergency() {
+            self.process_emergency(message).await;
+            Ok(())
+        } else {
+            self.batcher.send(message).await
+        }
     }
 
     pub fn metrics(&self) -> Arc<Metrics> {

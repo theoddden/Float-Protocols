@@ -16,6 +16,7 @@ pub struct Snapshot {
     pub protocol: Protocol,
     pub created_at: u64, // Unix timestamp in milliseconds
     pub size_bytes: usize,
+    pub device_id: u64,  // djb2 hash of sender payload; 0 = unknown
 }
 
 pub struct SnapshotManager {
@@ -33,8 +34,14 @@ impl SnapshotManager {
         }
     }
 
-    /// Create a snapshot from a batch of messages for fast uplink
-    pub async fn create_snapshot(&self, messages: Vec<Message>, protocol: Protocol) -> String {
+    /// Create a snapshot of a batch of messages for fast uplink.
+    /// `device_id` is the djb2 hash of the sender's payload (from clock reconciler).
+    pub async fn create_snapshot(
+        &self,
+        messages: Vec<Message>,
+        protocol: Protocol,
+        device_id: u64,
+    ) -> String {
         let snapshot_id = self.generate_snapshot_id(&messages, protocol);
         let size_bytes = messages.iter().map(|m| m.size()).sum();
 
@@ -44,17 +51,49 @@ impl SnapshotManager {
             protocol,
             created_at: self.now_ms(),
             size_bytes,
+            device_id,
         };
 
         let mut snapshots = self.snapshots.write().await;
 
-        // Evict oldest if at capacity
         if snapshots.len() >= self.max_snapshots {
             self.evict_oldest(&mut snapshots);
         }
 
         snapshots.insert(snapshot_id.clone(), snapshot);
         snapshot_id
+    }
+
+    /// Create a snapshot for an entire translated batch with a single write lock.
+    /// Prefer this over N individual `create_snapshot()` calls in hot paths.
+    pub async fn create_batch_snapshot(
+        &self,
+        messages: Vec<Message>,
+        protocol: Protocol,
+        device_id: u64,
+    ) -> String {
+        self.create_snapshot(messages, protocol, device_id).await
+    }
+
+    /// Drain all unexpired snapshots belonging to a device since `since_ms`.
+    /// Intended for fast uplink construction when a device exits a dead zone:
+    /// the caller retrieves pre-translated snapshots and sends them in bulk
+    /// without re-translation.
+    pub async fn drain_for_uplink(&self, device_id: u64, since_ms: u64) -> Vec<Snapshot> {
+        let mut snapshots = self.snapshots.write().await;
+        let now = self.now_ms();
+        let ttl_ms = self.snapshot_ttl.as_millis() as u64;
+        let mut result = Vec::new();
+        snapshots.retain(|_, s| {
+            let matches = s.device_id == device_id
+                && s.created_at >= since_ms
+                && (now - s.created_at) < ttl_ms;
+            if matches {
+                result.push(s.clone());
+            }
+            !matches
+        });
+        result
     }
 
     /// Retrieve a snapshot for instant uplink (no reprocessing needed)
@@ -124,15 +163,23 @@ impl SnapshotManager {
     }
 
     fn hash_messages(&self, messages: &[Message], protocol: Protocol) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        protocol.hash(&mut hasher);
-        for msg in messages {
-            msg.data.hash(&mut hasher);
+        // FNV-1a: deterministic across process restarts (unlike DefaultHasher
+        // which is randomized since Rust 1.7). Required for stable snapshot IDs.
+        const FNV_OFFSET: u64 = 14695981039346656037;
+        const FNV_PRIME: u64 = 1099511628211;
+        let mut h = FNV_OFFSET;
+        // Mix protocol discriminant
+        for &b in (protocol as u64).to_le_bytes().iter() {
+            h ^= b as u64;
+            h = h.wrapping_mul(FNV_PRIME);
         }
-        hasher.finish()
+        for msg in messages {
+            for &b in msg.data.iter() {
+                h ^= b as u64;
+                h = h.wrapping_mul(FNV_PRIME);
+            }
+        }
+        h
     }
 
     fn evict_oldest(&self, snapshots: &mut HashMap<String, Snapshot>) {
