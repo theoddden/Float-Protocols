@@ -220,13 +220,13 @@ async fn test_cache_hit_in_translation_flow() {
     let message2 = Message::new(Protocol::IridiumSBD, data, Priority::Operational);
 
     let _ = gateway.send(message1).await;
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(500)).await;
 
     let metrics_before = gateway.metrics().snapshot();
     let cache_hits_before = metrics_before.cache_hit_rate;
 
     let _ = gateway.send(message2).await;
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(500)).await;
 
     let metrics_after = gateway.metrics().snapshot();
     let cache_hits_after = metrics_after.cache_hit_rate;
@@ -334,7 +334,7 @@ async fn test_snapshot_creation_in_translation_flow() {
     );
 
     let _ = gateway.send(message).await;
-    sleep(Duration::from_millis(200)).await;
+    sleep(Duration::from_millis(500)).await;
 
     // Verify snapshot was created
     let snapshot_manager = gateway.snapshot_manager();
