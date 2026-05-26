@@ -220,20 +220,38 @@ async fn test_cache_hit_in_translation_flow() {
     let message2 = Message::new(Protocol::IridiumSBD, data, Priority::Operational);
 
     let _ = gateway.send(message1).await;
-    sleep(Duration::from_millis(500)).await;
+
+    // Wait for first message to be processed and cached
+    for _ in 0..50 {
+        sleep(Duration::from_millis(50)).await;
+        let metrics = gateway.metrics().snapshot();
+        if metrics.messages_translated >= 1 {
+            break;
+        }
+    }
 
     let metrics_before = gateway.metrics().snapshot();
     let cache_hits_before = metrics_before.cache_hit_rate;
 
     let _ = gateway.send(message2).await;
-    sleep(Duration::from_millis(500)).await;
+
+    // Wait for cache hit to be recorded
+    for _ in 0..50 {
+        sleep(Duration::from_millis(50)).await;
+        let metrics_after = gateway.metrics().snapshot();
+        if metrics_after.cache_hit_rate > cache_hits_before {
+            return; // Success
+        }
+    }
 
     let metrics_after = gateway.metrics().snapshot();
     let cache_hits_after = metrics_after.cache_hit_rate;
 
     assert!(
         cache_hits_after > cache_hits_before,
-        "Second message should hit cache"
+        "Second message should hit cache (before: {}, after: {})",
+        cache_hits_before,
+        cache_hits_after
     );
 }
 
@@ -334,7 +352,18 @@ async fn test_snapshot_creation_in_translation_flow() {
     );
 
     let _ = gateway.send(message).await;
-    sleep(Duration::from_millis(500)).await;
+
+    // Wait for snapshot to be created
+    for _ in 0..50 {
+        sleep(Duration::from_millis(50)).await;
+        let snapshot_manager = gateway.snapshot_manager();
+        let snapshots = snapshot_manager
+            .get_protocol_snapshots(Protocol::IridiumSBD)
+            .await;
+        if !snapshots.is_empty() {
+            return; // Success
+        }
+    }
 
     // Verify snapshot was created
     let snapshot_manager = gateway.snapshot_manager();
