@@ -76,9 +76,7 @@ impl ClockReconciler {
     /// Register a device clock offset measurement
     pub fn register_offset(&mut self, offset: ClockOffset) {
         // Evict the stalest entry when at capacity (only runs on new device IDs)
-        if self.offsets.len() >= self.max_offsets
-            && !self.offsets.contains_key(&offset.device_id)
-        {
+        if self.offsets.len() >= self.max_offsets && !self.offsets.contains_key(&offset.device_id) {
             if let Some(evict_id) = self
                 .offsets
                 .iter()
