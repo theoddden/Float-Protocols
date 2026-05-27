@@ -8,8 +8,8 @@
 //! - reconnect-burst drain time
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use float_protocols::protocol::{Message, Priority, Protocol};
 use float_protocols::gateway::Gateway;
+use float_protocols::protocol::{Message, Priority, Protocol};
 use float_protocols::translator::Translator;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -21,10 +21,14 @@ fn create_iridium_sbd_message() -> Message {
     data.extend_from_slice(&(payload.len() as u16).to_be_bytes());
     data.extend_from_slice(payload);
     // Compute CRC-16-CCITT for header + payload
-    let header_data = [0x01, (payload.len() as u16 >> 8) as u8, (payload.len() as u16 & 0xFF) as u8];
+    let header_data = [
+        0x01,
+        (payload.len() as u16 >> 8) as u8,
+        (payload.len() as u16 & 0xFF) as u8,
+    ];
     let crc = compute_crc16_ccitt(&header_data, payload);
     data.extend_from_slice(&crc.to_be_bytes());
-    
+
     Message::new(Protocol::IridiumSBD, data.into(), Priority::Operational)
 }
 
@@ -62,19 +66,27 @@ fn bench_parse_to_queue(c: &mut Criterion) {
     });
 
     let mut group = c.benchmark_group("parse_to_queue");
-    
+
     for size in [16, 64, 256, 340].iter() {
         let mut data = vec![0x01u8];
         let payload = vec![0u8; *size];
         data.extend_from_slice(&(payload.len() as u16).to_be_bytes());
         data.extend_from_slice(&payload);
-        let header_data = [0x01, (payload.len() as u16 >> 8) as u8, (payload.len() as u16 & 0xFF) as u8];
+        let header_data = [
+            0x01,
+            (payload.len() as u16 >> 8) as u8,
+            (payload.len() as u16 & 0xFF) as u8,
+        ];
         let crc = compute_crc16_ccitt(&header_data, &payload);
         data.extend_from_slice(&crc.to_be_bytes());
-        
+
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
             b.iter(|| {
-                let msg = Message::new(Protocol::IridiumSBD, data.clone().into(), Priority::Operational);
+                let msg = Message::new(
+                    Protocol::IridiumSBD,
+                    data.clone().into(),
+                    Priority::Operational,
+                );
                 rt.block_on(async {
                     let _ = gateway.send(msg).await;
                 });
@@ -89,20 +101,24 @@ fn bench_parse_to_queue(c: &mut Criterion) {
 fn bench_queue_to_translate(c: &mut Criterion) {
     let _rt = Runtime::new().unwrap();
     let translator = Translator::new(100);
-    
+
     let mut group = c.benchmark_group("queue_to_translate");
-    
+
     for size in [16, 64, 256, 340].iter() {
         let mut data = vec![0x01u8];
         let payload = vec![0u8; *size];
         data.extend_from_slice(&(payload.len() as u16).to_be_bytes());
         data.extend_from_slice(&payload);
-        let header_data = [0x01, (payload.len() as u16 >> 8) as u8, (payload.len() as u16 & 0xFF) as u8];
+        let header_data = [
+            0x01,
+            (payload.len() as u16 >> 8) as u8,
+            (payload.len() as u16 & 0xFF) as u8,
+        ];
         let crc = compute_crc16_ccitt(&header_data, &payload);
         data.extend_from_slice(&crc.to_be_bytes());
-        
+
         let msg = Message::new(Protocol::IridiumSBD, data.into(), Priority::Operational);
-        
+
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
             b.iter(|| {
                 let msg_clone = msg.clone();
@@ -132,7 +148,7 @@ fn bench_cache_hit_translation(c: &mut Criterion) {
     });
 
     let msg = create_iridium_sbd_message();
-    
+
     // Warm the cache
     rt.block_on(async {
         let _ = gateway.send(msg.clone()).await;
@@ -169,18 +185,22 @@ fn bench_emergency_path(c: &mut Criterion) {
     });
 
     let mut group = c.benchmark_group("emergency_path");
-    
+
     for size in [16, 64, 256, 340].iter() {
         let mut data = vec![0x01u8];
         let payload = vec![0u8; *size];
         data.extend_from_slice(&(payload.len() as u16).to_be_bytes());
         data.extend_from_slice(&payload);
-        let header_data = [0x01, (payload.len() as u16 >> 8) as u8, (payload.len() as u16 & 0xFF) as u8];
+        let header_data = [
+            0x01,
+            (payload.len() as u16 >> 8) as u8,
+            (payload.len() as u16 & 0xFF) as u8,
+        ];
         let crc = compute_crc16_ccitt(&header_data, &payload);
         data.extend_from_slice(&crc.to_be_bytes());
-        
+
         let msg = Message::new(Protocol::IridiumSBD, data.into(), Priority::Emergency);
-        
+
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
             b.iter(|| {
                 let msg_clone = msg.clone();
@@ -212,12 +232,10 @@ fn bench_reconnect_burst_drain(c: &mut Criterion) {
     });
 
     let mut group = c.benchmark_group("reconnect_burst_drain");
-    
+
     for count in [10, 50, 100, 500].iter() {
-        let messages: Vec<Message> = (0..*count)
-            .map(|_| create_iridium_sbd_message())
-            .collect();
-        
+        let messages: Vec<Message> = (0..*count).map(|_| create_iridium_sbd_message()).collect();
+
         group.bench_with_input(BenchmarkId::from_parameter(count), count, |b, _| {
             b.iter(|| {
                 let gateway_clone = gateway.clone();
