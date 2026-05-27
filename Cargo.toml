@@ -27,6 +27,8 @@ zstd = "0.13"  # Compression for VSAT
 crc = "3.0"  # CRC checksums for payload validation
 flate2 = "1.0"  # Gzip compression for OTel bundles
 
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
 dashmap = "6.0"           # Lock-free concurrent hashmap for sharding
 parking_lot = "0.12"      # Non-poisoning mutex/rwlock, faster than std on the async hot path
 crossbeam-channel = "0.5" # Lock-free channels for per-shard worker queues

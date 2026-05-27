@@ -128,6 +128,15 @@ pub enum CircuitBreakerError<E> {
     Inner(E),
 }
 
+impl<E: std::fmt::Display> std::fmt::Display for CircuitBreakerError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CircuitBreakerError::Open => write!(f, "circuit breaker open"),
+            CircuitBreakerError::Inner(e) => write!(f, "{}", e),
+        }
+    }
+}
+
 pub struct RetryPolicy {
     max_attempts: u32,
     base_delay: Duration,

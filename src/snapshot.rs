@@ -5,7 +5,7 @@
 
 use crate::protocol::{Message, Protocol};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
@@ -19,8 +19,25 @@ pub struct Snapshot {
     pub device_id: u64, // djb2 hash of sender payload; 0 = unknown
 }
 
+/// Inner store bundling the lookup map with an insertion-order queue.
+/// The queue enables O(1) eviction: pop the front key, skip ghost entries
+/// (keys already removed by drain_for_uplink / delete_snapshot).
+struct SnapshotStore {
+    map: HashMap<String, Snapshot>,
+    order: VecDeque<String>,
+}
+
+impl SnapshotStore {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+}
+
 pub struct SnapshotManager {
-    snapshots: RwLock<HashMap<String, Snapshot>>,
+    store: RwLock<SnapshotStore>,
     max_snapshots: usize,
     snapshot_ttl: Duration,
 }
@@ -28,7 +45,7 @@ pub struct SnapshotManager {
 impl SnapshotManager {
     pub fn new(max_snapshots: usize, snapshot_ttl: Duration) -> Self {
         Self {
-            snapshots: RwLock::new(HashMap::new()),
+            store: RwLock::new(SnapshotStore::new()),
             max_snapshots,
             snapshot_ttl,
         }
@@ -54,13 +71,14 @@ impl SnapshotManager {
             device_id,
         };
 
-        let mut snapshots = self.snapshots.write().await;
+        let mut store = self.store.write().await;
 
-        if snapshots.len() >= self.max_snapshots {
-            self.evict_oldest(&mut snapshots);
+        if store.map.len() >= self.max_snapshots {
+            Self::evict_oldest(&mut store);
         }
 
-        snapshots.insert(snapshot_id.clone(), snapshot);
+        store.order.push_back(snapshot_id.clone());
+        store.map.insert(snapshot_id.clone(), snapshot);
         snapshot_id
     }
 
@@ -80,11 +98,12 @@ impl SnapshotManager {
     /// the caller retrieves pre-translated snapshots and sends them in bulk
     /// without re-translation.
     pub async fn drain_for_uplink(&self, device_id: u64, since_ms: u64) -> Vec<Snapshot> {
-        let mut snapshots = self.snapshots.write().await;
+        let mut store = self.store.write().await;
         let now = self.now_ms();
         let ttl_ms = self.snapshot_ttl.as_millis() as u64;
         let mut result = Vec::new();
-        snapshots.retain(|_, s| {
+        // Removes from map; ghost keys in order queue are handled lazily by evict_oldest.
+        store.map.retain(|_, s| {
             let matches = s.device_id == device_id
                 && s.created_at >= since_ms
                 && (now - s.created_at) < ttl_ms;
@@ -98,10 +117,9 @@ impl SnapshotManager {
 
     /// Retrieve a snapshot for instant uplink (no reprocessing needed)
     pub async fn get_snapshot(&self, snapshot_id: &str) -> Option<Snapshot> {
-        let snapshots = self.snapshots.read().await;
-        let snapshot = snapshots.get(snapshot_id)?;
+        let store = self.store.read().await;
+        let snapshot = store.map.get(snapshot_id)?;
 
-        // Check if snapshot is still valid (not expired)
         let age_ms = self.now_ms() - snapshot.created_at;
         if age_ms > self.snapshot_ttl.as_millis() as u64 {
             return None;
@@ -112,10 +130,11 @@ impl SnapshotManager {
 
     /// Get all snapshots for a specific protocol
     pub async fn get_protocol_snapshots(&self, protocol: Protocol) -> Vec<Snapshot> {
-        let snapshots = self.snapshots.read().await;
+        let store = self.store.read().await;
         let now = self.now_ms();
 
-        snapshots
+        store
+            .map
             .values()
             .filter(|s| {
                 s.protocol == protocol
@@ -127,29 +146,34 @@ impl SnapshotManager {
 
     /// Delete a specific snapshot
     pub async fn delete_snapshot(&self, snapshot_id: &str) -> bool {
-        let mut snapshots = self.snapshots.write().await;
-        snapshots.remove(snapshot_id).is_some()
+        // Removes from map; ghost key in order queue handled lazily by evict_oldest.
+        let mut store = self.store.write().await;
+        store.map.remove(snapshot_id).is_some()
     }
 
     /// Clear all expired snapshots
     pub async fn clear_expired(&self) {
-        let mut snapshots = self.snapshots.write().await;
+        let mut store = self.store.write().await;
         let now = self.now_ms();
-        snapshots.retain(|_, s| (now - s.created_at) < self.snapshot_ttl.as_millis() as u64);
+        store
+            .map
+            .retain(|_, s| (now - s.created_at) < self.snapshot_ttl.as_millis() as u64);
+        // Ghost keys in order queue are purged lazily by evict_oldest.
     }
 
     /// Get snapshot statistics
     pub async fn stats(&self) -> SnapshotStats {
-        let snapshots = self.snapshots.read().await;
+        let store = self.store.read().await;
         let now = self.now_ms();
-        let valid_snapshots = snapshots
+        let valid_snapshots = store
+            .map
             .values()
             .filter(|s| (now - s.created_at) < self.snapshot_ttl.as_millis() as u64)
             .count();
-        let total_size: usize = snapshots.values().map(|s| s.size_bytes).sum();
+        let total_size: usize = store.map.values().map(|s| s.size_bytes).sum();
 
         SnapshotStats {
-            total_snapshots: snapshots.len(),
+            total_snapshots: store.map.len(),
             valid_snapshots,
             total_size_bytes: total_size,
             max_snapshots: self.max_snapshots,
@@ -182,13 +206,14 @@ impl SnapshotManager {
         h
     }
 
-    fn evict_oldest(&self, snapshots: &mut HashMap<String, Snapshot>) {
-        if let Some(oldest_id) = snapshots
-            .iter()
-            .min_by_key(|(_, s)| s.created_at)
-            .map(|(id, _)| id.clone())
-        {
-            snapshots.remove(&oldest_id);
+    /// O(1) amortized eviction: pops the front of the insertion-order queue,
+    /// skipping ghost keys (already removed by drain_for_uplink / delete_snapshot).
+    fn evict_oldest(store: &mut SnapshotStore) {
+        while let Some(id) = store.order.pop_front() {
+            if store.map.remove(&id).is_some() {
+                return;
+            }
+            // Ghost entry — key was already removed; try next in queue.
         }
     }
 

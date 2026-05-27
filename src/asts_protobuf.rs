@@ -3,6 +3,13 @@
 //! Encodes messages in AST SpaceMobile-compatible Protobuf format
 //! without any heap allocations on the hot path.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Global sequence counter shared across all ZeroCopyTranslator instances.
+/// Using Relaxed ordering — sequence uniqueness (no repeats within a process
+/// lifetime) is the only requirement; strict inter-thread ordering is not needed.
+static GLOBAL_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ASTSProtobufHeader {
@@ -75,14 +82,13 @@ impl ASTSProtobufMessage {
     }
 }
 
-/// Zero-allocation translator from Iridium SBD to ASTS Protobuf
-pub struct ZeroCopyTranslator {
-    sequence: u32,
-}
+/// Zero-allocation translator from Iridium SBD to ASTS Protobuf.
+/// Zero-size type — all state lives in GLOBAL_SEQUENCE.
+pub struct ZeroCopyTranslator;
 
 impl ZeroCopyTranslator {
     pub fn new() -> Self {
-        Self { sequence: 0 }
+        Self
     }
 
     /// Translate Iridium SBD to ASTS Protobuf (zero-allocation)
@@ -92,14 +98,12 @@ impl ZeroCopyTranslator {
         iridium_msg: &crate::iridium_sbd::IridiumSBDMessage,
         output_buffer: &mut [u8],
     ) -> Option<usize> {
-        let mut asts_msg = ASTSProtobufMessage::new(0x01, self.sequence);
+        let seq = GLOBAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let mut asts_msg = ASTSProtobufMessage::new(0x01, seq);
 
-        // Copy payload directly (no allocation)
         if !asts_msg.set_payload(iridium_msg.payload_slice()) {
             return None;
         }
-
-        self.sequence = self.sequence.wrapping_add(1);
 
         asts_msg.encode_to_buffer(output_buffer)
     }
@@ -111,13 +115,12 @@ impl ZeroCopyTranslator {
         message_type: u8,
         output_buffer: &mut [u8],
     ) -> Option<usize> {
-        let mut asts_msg = ASTSProtobufMessage::new(message_type, self.sequence);
+        let seq = GLOBAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let mut asts_msg = ASTSProtobufMessage::new(message_type, seq);
 
         if !asts_msg.set_payload(iridium_msg.payload_slice()) {
             return None;
         }
-
-        self.sequence = self.sequence.wrapping_add(1);
 
         asts_msg.encode_to_buffer(output_buffer)
     }

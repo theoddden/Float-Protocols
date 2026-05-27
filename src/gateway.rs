@@ -16,12 +16,13 @@ use crate::cadence_translation::{CadenceTranslator, TranslationAction};
 use crate::clock_reconciliation::{ClockReconciler, NetworkTimeSource};
 use crate::metrics::Metrics;
 use crate::protocol::{Message, Priority, Protocol};
-use crate::reliability::{CircuitBreaker, RetryPolicy};
+use crate::reliability::{CircuitBreaker, CircuitBreakerError, RetryPolicy};
 use crate::sharding::{ShardId, ShardManager, ShardWorker};
 use crate::snapshot::SnapshotManager;
 use crate::translator::{Translator, TranslatorPool};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
@@ -105,9 +106,10 @@ pub struct Gateway {
     bitemporal_store: Arc<BiTemporalStore>,
     cadence_translator: Mutex<CadenceTranslator>,
     clock_reconciler: Mutex<ClockReconciler>,
-    ewma_state: Mutex<EwmaSpreadState>,
+    ewma_state: Mutex<HashMap<Protocol, EwmaSpreadState>>,
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
+    http_client: reqwest::Client,
     // input_tx removed: send() routes through batcher directly
 }
 
@@ -157,9 +159,10 @@ impl Gateway {
             bitemporal_store,
             cadence_translator: Mutex::new(cadence_translator),
             clock_reconciler: Mutex::new(clock_reconciler),
-            ewma_state: Mutex::new(EwmaSpreadState::new()),
+            ewma_state: Mutex::new(HashMap::new()),
             asts_credentials,
             telemetry_config,
+            http_client: reqwest::Client::new(),
         });
 
         // Spawn per-shard workers for regular shards (1 through num_shards-2).
@@ -275,11 +278,14 @@ impl Gateway {
 
         // 3. EWMA + spread partition + cadence filter — one lock each
         let (spread_msgs, normal_msgs): (Vec<Message>, Vec<Message>) = {
-            let mut ewma = self.ewma_state.lock();
+            let mut ewma_map = self.ewma_state.lock();
             let mut ct = self.cadence_translator.lock();
             let mut spread = Vec::new();
             let mut normal = Vec::new();
             for msg in reconciled {
+                let ewma = ewma_map
+                    .entry(msg.protocol)
+                    .or_insert_with(EwmaSpreadState::new);
                 ewma.update(msg.spread_ms());
                 let threshold =
                     ewma.adaptive_threshold_ms(msg.protocol.spread_burst_threshold_ms());
@@ -423,9 +429,12 @@ impl Gateway {
             count = messages.len(),
             "Draining spread shard burst-recovery messages"
         );
+
+        // Translate all messages first, collecting (original, translated) pairs.
+        let mut pairs: Vec<(Message, Message)> = Vec::with_capacity(messages.len());
         for message in messages {
-            let translated = match self.translator.translate_sync(message.clone()) {
-                Ok(t) => t,
+            match self.translator.translate_sync(message.clone()) {
+                Ok(t) => pairs.push((message, t)),
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
@@ -433,43 +442,111 @@ impl Gateway {
                         "Spread drain: translation failed"
                     );
                     self.metrics.record_error();
-                    continue;
                 }
-            };
-            self.cache
-                .set(message.protocol, &message.data, translated.clone())
-                .await;
-            let device_id = Self::djb2_hash(&message.data);
-            self.snapshot_manager
-                .create_snapshot(
-                    vec![translated.clone()],
-                    Protocol::ASTSpaceMobile,
-                    device_id,
-                )
-                .await;
+            }
+        }
+        if pairs.is_empty() {
+            return;
+        }
+
+        // Batch cache set — one write lock for the entire drain batch.
+        let cache_entries: Vec<(Protocol, bytes::Bytes, Message)> = pairs
+            .iter()
+            .map(|(orig, t)| (orig.protocol, orig.data.clone(), t.clone()))
+            .collect();
+        self.cache.set_batch(cache_entries).await;
+
+        // Batch snapshot — one write lock.
+        let device_id = Self::djb2_hash(&pairs[0].0.data);
+        let translated_msgs: Vec<Message> = pairs.into_iter().map(|(_, t)| t).collect();
+        self.snapshot_manager
+            .create_batch_snapshot(translated_msgs.clone(), Protocol::ASTSpaceMobile, device_id)
+            .await;
+
+        // Emit all.
+        for translated in translated_msgs {
             self.send_to_asts(translated).await;
             self.metrics.increment_translated();
         }
     }
 
     async fn send_to_asts(&self, message: Message) {
-        // Send to AST SpaceMobile using BYO credentials
-        if let Some(_creds) = &self.asts_credentials {
-            // TODO: Implement actual AST SpaceMobile API call
-            // This would use the user's account details
-            self.metrics.record_protocol(Protocol::ASTSpaceMobile);
+        if let Some(creds) = &self.asts_credentials {
+            let url = format!(
+                "https://api.astspaceapi.com/v1/accounts/{}/messages",
+                creds.account_id
+            );
+            let account_id = creds.account_id.clone();
+            let api_key = creds.api_key.clone();
+            let client = self.http_client.clone();
+
+            // Extract values before the async move block to avoid capturing &self.
+            let data_hex = hex::encode(&message.data[..]);
+            let priority_val: u8 = match &message.priority {
+                Priority::Emergency => 0,
+                Priority::SafetyCritical => 1,
+                Priority::Operational => 2,
+                Priority::Diagnostic => 3,
+            };
+            let t_event = message.t_event;
+            let t_system = message.t_system;
+            let protocol_str = format!("{}", message.protocol);
+
+            let result = self
+                .circuit_breaker
+                .call(async move {
+                    client
+                        .post(&url)
+                        .header("X-Account-Id", &account_id)
+                        .header("X-Api-Key", &api_key)
+                        .json(&serde_json::json!({
+                            "protocol": protocol_str,
+                            "data": data_hex,
+                            "priority": priority_val,
+                            "t_event": t_event,
+                            "t_system": t_system,
+                        }))
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+                .await;
+
+            match result {
+                Ok(_) => self.metrics.record_protocol(Protocol::ASTSpaceMobile),
+                Err(CircuitBreakerError::Open) => {
+                    tracing::warn!("ASTS uplink blocked: circuit breaker open");
+                    self.metrics.record_error();
+                }
+                Err(CircuitBreakerError::Inner(e)) => {
+                    tracing::error!(error = %e, "ASTS uplink failed");
+                    self.metrics.record_error();
+                }
+            }
         }
 
-        // Send telemetry ping if enabled
         if self.telemetry_config.enabled {
             self.send_telemetry_ping(&message).await;
         }
     }
 
-    async fn send_telemetry_ping(&self, _message: &Message) {
-        if let Some(_endpoint) = &self.telemetry_config.endpoint {
-            // TODO: Send telemetry to configured endpoint
-            // Includes message metadata, latency, cache hit rate, etc.
+    async fn send_telemetry_ping(&self, message: &Message) {
+        if let Some(endpoint) = &self.telemetry_config.endpoint {
+            let client = self.http_client.clone();
+            let url = endpoint.clone();
+            let snapshot = self.metrics.snapshot();
+            let _ = client
+                .post(&url)
+                .json(&serde_json::json!({
+                    "protocol": format!("{}", message.protocol),
+                    "t_event": message.t_event,
+                    "t_system": message.t_system,
+                    "cache_hit_rate": snapshot.cache_hit_rate,
+                    "avg_latency_ms": snapshot.avg_latency_ms,
+                    "errors": snapshot.errors,
+                }))
+                .send()
+                .await;
         }
     }
 

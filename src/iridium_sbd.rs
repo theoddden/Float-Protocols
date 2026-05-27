@@ -25,7 +25,12 @@ const CRC16_CCITT_INIT: u16 = 0xFFFF;
 
 /// Compute CRC-16-CCITT checksum (zero-allocation)
 fn crc16_ccitt(data: &[u8]) -> u16 {
-    let mut crc = CRC16_CCITT_INIT;
+    crc16_ccitt_continue(CRC16_CCITT_INIT, data)
+}
+
+/// Continue a CRC-16-CCITT computation from an existing CRC state.
+/// Used to chain header and payload CRC computation without concatenating slices.
+fn crc16_ccitt_continue(mut crc: u16, data: &[u8]) -> u16 {
     for &byte in data {
         crc ^= (byte as u16) << 8;
         for _ in 0..8 {
@@ -76,31 +81,22 @@ impl IridiumSBDMessage {
         })
     }
 
-    /// Validate checksum using CRC-16-CCITT (zero-allocation)
+    /// Validate checksum using CRC-16-CCITT over header then payload (chained).
     pub fn validate_checksum(&self) -> bool {
-        // Compute CRC over header + payload
-        let header_data = [
-            self.header.protocol,
-            (self.header.length >> 8) as u8,
-            (self.header.length & 0xFF) as u8,
-        ];
-        let _computed = crc16_ccitt(&header_data);
-        let _computed = crc16_ccitt(&self.payload[..self.payload_len as usize]);
-        // Note: Iridium SBD uses a different checksum algorithm in practice
-        // For now, we validate that the stored checksum is non-zero as a basic check
-        // Production should implement the exact Iridium CRC algorithm
-        self.checksum != 0
+        self.compute_crc() == self.checksum
     }
 
-    /// Compute CRC-16-CCITT for the message (header + payload)
+    /// Compute CRC-16-CCITT for the message.
+    /// Chains the CRC state from header bytes into payload bytes so the full
+    /// message is covered by a single logical CRC computation.
     pub fn compute_crc(&self) -> u16 {
         let header_data = [
             self.header.protocol,
             (self.header.length >> 8) as u8,
             (self.header.length & 0xFF) as u8,
         ];
-        let _crc = crc16_ccitt(&header_data);
-        crc16_ccitt(&self.payload[..self.payload_len as usize])
+        let crc = crc16_ccitt(&header_data);
+        crc16_ccitt_continue(crc, &self.payload[..self.payload_len as usize])
     }
 
     /// Get payload as slice (zero-copy)

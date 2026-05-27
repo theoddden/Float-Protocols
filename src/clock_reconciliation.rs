@@ -3,6 +3,7 @@
 //! Solves the problem where device internal clocks drift from ASTS network time
 //! during dead zone bursts. Tracks offset and applies corrections.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +45,7 @@ impl ClockOffset {
 }
 
 pub struct ClockReconciler {
-    offsets: Vec<ClockOffset>,
+    offsets: HashMap<u64, ClockOffset>,
     max_offsets: usize,
     max_age: Duration,
     network_time_source: NetworkTimeSource,
@@ -65,7 +66,7 @@ impl ClockReconciler {
         network_time_source: NetworkTimeSource,
     ) -> Self {
         Self {
-            offsets: Vec::with_capacity(max_offsets),
+            offsets: HashMap::with_capacity(max_offsets),
             max_offsets,
             max_age,
             network_time_source,
@@ -74,23 +75,26 @@ impl ClockReconciler {
 
     /// Register a device clock offset measurement
     pub fn register_offset(&mut self, offset: ClockOffset) {
-        // Remove existing offset for this device
-        self.offsets.retain(|o| o.device_id != offset.device_id);
-
-        // Add new offset
-        self.offsets.push(offset);
-
-        // Evict oldest if at capacity
-        if self.offsets.len() > self.max_offsets {
-            self.offsets.remove(0);
+        // Evict the stalest entry when at capacity (only runs on new device IDs)
+        if self.offsets.len() >= self.max_offsets
+            && !self.offsets.contains_key(&offset.device_id)
+        {
+            if let Some(evict_id) = self
+                .offsets
+                .iter()
+                .min_by_key(|(_, o)| o.last_updated)
+                .map(|(&id, _)| id)
+            {
+                self.offsets.remove(&evict_id);
+            }
         }
+        self.offsets.insert(offset.device_id, offset);
     }
 
-    /// Get clock offset for a device
+    /// Get clock offset for a device (O(1))
     pub fn get_offset(&self, device_id: u64) -> Option<ClockOffset> {
         self.offsets
-            .iter()
-            .find(|o| o.device_id == device_id)
+            .get(&device_id)
             .filter(|o| !o.is_stale(self.max_age))
             .copied()
     }
@@ -185,8 +189,8 @@ impl ClockReconciler {
 
     /// Update all offsets (periodic maintenance)
     pub fn update_offsets(&mut self) {
-        // Remove stale offsets
-        self.offsets.retain(|o| !o.is_stale(self.max_age));
+        let max_age = self.max_age;
+        self.offsets.retain(|_, o| !o.is_stale(max_age));
     }
 
     /// Get statistics about clock offsets
@@ -194,13 +198,13 @@ impl ClockReconciler {
         let total_offsets = self.offsets.len();
         let stale_offsets = self
             .offsets
-            .iter()
+            .values()
             .filter(|o| o.is_stale(self.max_age))
             .count();
         let avg_offset = if self.offsets.is_empty() {
             0
         } else {
-            let sum: i64 = self.offsets.iter().map(|o| o.offset_ms).sum();
+            let sum: i64 = self.offsets.values().map(|o| o.offset_ms).sum();
             sum / self.offsets.len() as i64
         };
 
