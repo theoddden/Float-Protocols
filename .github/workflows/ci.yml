@@ -175,7 +175,13 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: bench
-          args: --all-features
+          args: --all-features -- --output-format bencher
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: target/criterion
 
   security:
     name: Security Audit

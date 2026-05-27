@@ -51,6 +51,9 @@ panic = "abort"  # Reduce binary size
 [profile.dev]
 opt-level = "s"  # Optimize for size in dev too
 
+[dev-dependencies]
+criterion = "0.5"
+
 [features]
 default = ["std", "tracing"]
 std = ["tokio/rt-multi-thread", "tracing-subscriber"]
