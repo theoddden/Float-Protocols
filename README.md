@@ -29,17 +29,6 @@
 
 Float Protocols is a primitive that bridges existing dead zone communication systems (Iridium, Inmarsat, VSAT, HF/VHF, RockBLOCK) to future satellite networks. Currently supports traditional satellite protocols with future-proofing for AST SpaceMobile's and Iridium's NTN enterprise IoT APIs when released.
 
-### Design Principles
-
-- Async-first architecture for low latency
-- 99% uptime goal with circuit breakers, retries, and health checks
-- Ultra-lightweight: runs on pre-existing RAM on local ARM
-- Zero-allocation where possible using stack-allocated buffers
-- Fixed-size buffers for memory efficiency
-- Memory sharding for immediate deadzone uplink (InferX pattern)
-- Snapshotting for fast uplink building
-- Inspired by vLLM batching and LMCache caching patterns
-
 ## Supported Protocols
 
 - **Iridium SBD** - Iridium Short Burst Data (340 bytes max)
