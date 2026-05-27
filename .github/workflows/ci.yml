@@ -178,7 +178,7 @@ jobs:
           args: --all-features -- --output-format bencher
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: target/criterion
