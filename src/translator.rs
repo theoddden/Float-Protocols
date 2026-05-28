@@ -241,6 +241,7 @@ impl Translator {
             device_id_result.map_err(|_| TranslateError::InvalidProtocol)?;
 
         // Parse remaining fields
+        #[allow(clippy::type_complexity)]
         let body_result: IResult<&[u8], (u64, f64, f64, u32), Error<&[u8]>> = tuple((
             be_u64::<_, Error<&[u8]>>, // timestamp
             be_f64::<_, Error<&[u8]>>, // latitude

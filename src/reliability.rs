@@ -84,11 +84,11 @@ impl CircuitBreaker {
         }
 
         // If in HalfOpen state, limit concurrent calls to 1
-        if state == CircuitState::HalfOpen as u8 {
-            if self.half_open_calls.fetch_add(1, Ordering::AcqRel) > 0 {
-                self.half_open_calls.fetch_sub(1, Ordering::AcqRel);
-                return Err(CircuitBreakerError::Open);
-            }
+        if state == CircuitState::HalfOpen as u8
+            && self.half_open_calls.fetch_add(1, Ordering::AcqRel) > 0
+        {
+            self.half_open_calls.fetch_sub(1, Ordering::AcqRel);
+            return Err(CircuitBreakerError::Open);
         }
 
         match f.await {
@@ -109,6 +109,7 @@ impl CircuitBreaker {
         }
     }
 
+    #[allow(dead_code)]
     fn is_open(&self) -> bool {
         let state = self.state.load(Ordering::Acquire) as u8;
         state == CircuitState::Open as u8
