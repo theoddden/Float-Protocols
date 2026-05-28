@@ -20,6 +20,10 @@ pub struct Metrics {
     // Bi-temporal spread routing counter
     spread_sharded_messages: AtomicU64,
 
+    // Transmission batcher counters
+    transmission_batches_sent: AtomicU64,
+    transmission_batch_messages: AtomicU64,
+
     // Protocol-specific counters
     iridium_messages: AtomicU64,
     inmarsat_messages: AtomicU64,
@@ -40,6 +44,8 @@ impl Metrics {
             cache_misses: AtomicU64::new(0),
             errors: AtomicU64::new(0),
             spread_sharded_messages: AtomicU64::new(0),
+            transmission_batches_sent: AtomicU64::new(0),
+            transmission_batch_messages: AtomicU64::new(0),
             total_latency_ms: AtomicU64::new(0),
             latency_samples: AtomicU64::new(0),
             iridium_messages: AtomicU64::new(0),
@@ -77,6 +83,14 @@ impl Metrics {
         self.spread_sharded_messages.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record one transmission batch being sent with `message_count` messages.
+    pub fn record_transmission_batch(&self, message_count: u64) {
+        self.transmission_batches_sent
+            .fetch_add(1, Ordering::Relaxed);
+        self.transmission_batch_messages
+            .fetch_add(message_count, Ordering::Relaxed);
+    }
+
     pub fn record_latency(&self, latency: Duration) {
         let latency_ms = latency.as_millis() as u64;
         self.total_latency_ms
@@ -112,6 +126,14 @@ impl Metrics {
             0.0
         };
 
+        let transmission_batches_sent = self.transmission_batches_sent.load(Ordering::Relaxed);
+        let transmission_batch_messages = self.transmission_batch_messages.load(Ordering::Relaxed);
+        let avg_transmission_batch_size = if transmission_batches_sent > 0 {
+            transmission_batch_messages as f64 / transmission_batches_sent as f64
+        } else {
+            0.0
+        };
+
         MetricsSnapshot {
             messages_translated: self.messages_translated.load(Ordering::Relaxed),
             messages_batched: self.messages_batched.load(Ordering::Relaxed),
@@ -128,6 +150,9 @@ impl Metrics {
             samsara_messages: self.samsara_messages.load(Ordering::Relaxed),
             nidd_messages: self.nidd_messages.load(Ordering::Relaxed),
             asts_messages: self.asts_messages.load(Ordering::Relaxed),
+            transmission_batches_sent,
+            transmission_batch_messages,
+            avg_transmission_batch_size,
         }
     }
 }
@@ -149,6 +174,9 @@ pub struct MetricsSnapshot {
     pub samsara_messages: u64,
     pub nidd_messages: u64,
     pub asts_messages: u64,
+    pub transmission_batches_sent: u64,
+    pub transmission_batch_messages: u64,
+    pub avg_transmission_batch_size: f64,
 }
 
 impl MetricsSnapshot {

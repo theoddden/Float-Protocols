@@ -20,6 +20,7 @@ use crate::reliability::{CircuitBreaker, CircuitBreakerError, RetryPolicy};
 use crate::sharding::{ShardId, ShardManager, ShardWorker};
 use crate::snapshot::SnapshotManager;
 use crate::translator::{Translator, TranslatorPool};
+use crate::transmission_batcher::TransmissionBatcher;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -110,6 +111,7 @@ pub struct Gateway {
     asts_credentials: Option<ASTSCredentials>,
     telemetry_config: TelemetryConfig,
     http_client: reqwest::Client,
+    transmission_batcher: TransmissionBatcher,
     // input_tx removed: send() routes through batcher directly
 }
 
@@ -128,6 +130,13 @@ impl Gateway {
         let batch_rx = batcher
             .take_batch_receiver()
             .expect("batch receiver taken before construction");
+        // Transmission batcher: coalesces translated messages into batched
+        // ASTS HTTP requests, reducing per-message overhead on the satellite link.
+        let mut transmission_batcher =
+            TransmissionBatcher::new(20, Duration::from_millis(100), buffer_size);
+        let transmission_batch_rx = transmission_batcher
+            .take_batch_receiver()
+            .expect("transmission batch receiver taken before construction");
         let cache = AsyncCache::new(1000, cache_ttl);
         let circuit_breaker = CircuitBreaker::new(5, Duration::from_secs(30));
         let retry_policy = RetryPolicy::new(3, Duration::from_millis(100));
@@ -150,6 +159,7 @@ impl Gateway {
             translator,
             translator_pool,
             batcher,
+            transmission_batcher,
             cache,
             circuit_breaker,
             _retry_policy: retry_policy,
@@ -191,6 +201,17 @@ impl Gateway {
             let mut rx = batch_rx;
             while let Some(batch) = rx.recv().await {
                 gw.process_incoming_batch(batch).await;
+            }
+        });
+
+        // Spawn transmission batcher consumer: takes coalesced batches of
+        // translated messages and sends them to ASTS in a single HTTP request,
+        // improving satellite link utilization (lower queue times = lower latency).
+        let gw = Arc::clone(&gateway);
+        tokio::spawn(async move {
+            let mut rx = transmission_batch_rx;
+            while let Some(batch) = rx.recv().await {
+                gw.send_batch_to_asts(batch).await;
             }
         });
 
@@ -423,9 +444,13 @@ impl Gateway {
             .create_batch_snapshot(translated_msgs.clone(), Protocol::ASTSpaceMobile, device_id)
             .await;
 
-        // Emit all
+        // Emit all via transmission batcher — coalesces into batched HTTP requests
+        // for better satellite link utilization.
         for translated in translated_msgs {
-            self.send_to_asts(translated).await;
+            if let Err(e) = self.transmission_batcher.enqueue(translated).await {
+                tracing::warn!(error = %e, "Transmission batcher enqueue failed");
+                self.metrics.record_error();
+            }
         }
         self.metrics.record_latency(start.elapsed());
     }
@@ -479,10 +504,96 @@ impl Gateway {
             .create_batch_snapshot(translated_msgs.clone(), Protocol::ASTSpaceMobile, device_id)
             .await;
 
-        // Emit all.
+        // Emit all via transmission batcher.
         for translated in translated_msgs {
-            self.send_to_asts(translated).await;
-            self.metrics.increment_translated();
+            if let Err(e) = self.transmission_batcher.enqueue(translated).await {
+                tracing::warn!(error = %e, "Spread drain: transmission batcher enqueue failed");
+                self.metrics.record_error();
+            } else {
+                self.metrics.increment_translated();
+            }
+        }
+    }
+
+    /// Send a batch of translated messages to ASTS in a single HTTP request.
+    ///
+    /// Called by the transmission batcher consumer task.  All non-emergency
+    /// translated messages flow through here; emergency messages bypass this
+    /// and use `send_to_asts` directly so they are never delayed by batch fill.
+    async fn send_batch_to_asts(&self, messages: Vec<Message>) {
+        if messages.is_empty() {
+            return;
+        }
+
+        let batch_size = messages.len();
+        self.metrics.record_transmission_batch(batch_size as u64);
+
+        if let Some(creds) = &self.asts_credentials {
+            let url = format!(
+                "https://api.astspaceapi.com/v1/accounts/{}/messages/batch",
+                creds.account_id
+            );
+            let account_id = creds.account_id.clone();
+            let api_key = creds.api_key.clone();
+            let client = self.http_client.clone();
+
+            // Build the payload before the async move so we don't capture &self.
+            let batch_payload: Vec<serde_json::Value> = messages
+                .iter()
+                .map(|m| {
+                    let priority_val: u8 = match &m.priority {
+                        Priority::Emergency => 0,
+                        Priority::SafetyCritical => 1,
+                        Priority::Operational => 2,
+                        Priority::Diagnostic => 3,
+                    };
+                    serde_json::json!({
+                        "protocol": format!("{}", m.protocol),
+                        "data": hex::encode(&m.data[..]),
+                        "priority": priority_val,
+                        "t_event": m.t_event,
+                        "t_system": m.t_system,
+                    })
+                })
+                .collect();
+            let payload = serde_json::json!({ "messages": batch_payload });
+
+            let result = self
+                .circuit_breaker
+                .call(async move {
+                    client
+                        .post(&url)
+                        .header("X-Account-Id", &account_id)
+                        .header("X-Api-Key", &api_key)
+                        .json(&payload)
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+                .await;
+
+            match result {
+                Ok(_) => {
+                    self.metrics.record_protocol(Protocol::ASTSpaceMobile);
+                }
+                Err(CircuitBreakerError::Open) => {
+                    tracing::warn!(
+                        batch_size,
+                        "ASTS batch uplink blocked: circuit breaker open"
+                    );
+                    self.metrics.record_error();
+                }
+                Err(CircuitBreakerError::Inner(e)) => {
+                    tracing::error!(error = %e, batch_size, "ASTS batch uplink failed");
+                    self.metrics.record_error();
+                }
+            }
+        }
+
+        if self.telemetry_config.enabled {
+            if let Some(first) = messages.first() {
+                self.send_telemetry_ping(first).await;
+            }
         }
     }
 

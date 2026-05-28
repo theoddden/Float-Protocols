@@ -37,6 +37,7 @@ pub mod samsara;
 pub mod sharding;
 pub mod snapshot;
 pub mod translator;
+pub mod transmission_batcher;
 pub mod vsat;
 
 pub use asts_protobuf::{ASTSProtobufMessage, ZeroCopyTranslator};
@@ -63,4 +64,5 @@ pub use samsara::SamsaraMessage;
 pub use sharding::{ShardId, ShardManager};
 pub use snapshot::{Snapshot, SnapshotManager};
 pub use translator::{translate_iridium_to_asts_sync, BufferPool, Translator};
+pub use transmission_batcher::TransmissionBatcher;
 pub use vsat::VSATMessage;
