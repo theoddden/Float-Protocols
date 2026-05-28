@@ -118,22 +118,22 @@ pub struct Gateway {
 impl Gateway {
     pub fn new(
         buffer_size: usize,
-        batch_timeout: Duration,
+        _batch_timeout: Duration,
         cache_ttl: Duration,
         asts_credentials: Option<ASTSCredentials>,
         telemetry_config: TelemetryConfig,
     ) -> Arc<Self> {
         let translator = Translator::new(100);
-        let translator_pool = Arc::new(TranslatorPool::new(4));
+        let translator_pool = Arc::new(TranslatorPool::new(8));
         // Extract batch_rx BEFORE moving batcher into the struct.
-        let mut batcher = AsyncBatcher::new(10, batch_timeout, buffer_size);
+        let mut batcher = AsyncBatcher::new(10, Duration::from_millis(25), buffer_size);
         let batch_rx = batcher
             .take_batch_receiver()
             .expect("batch receiver taken before construction");
         // Transmission batcher: coalesces translated messages into batched
         // ASTS HTTP requests, reducing per-message overhead on the satellite link.
         let mut transmission_batcher =
-            TransmissionBatcher::new(20, Duration::from_millis(100), buffer_size);
+            TransmissionBatcher::new(20, Duration::from_millis(50), buffer_size);
         let transmission_batch_rx = transmission_batcher
             .take_batch_receiver()
             .expect("transmission batch receiver taken before construction");
@@ -186,7 +186,7 @@ impl Gateway {
             if let Some(receiver) = shard_manager.get_receiver(shard_id) {
                 let worker = ShardWorker::new(shard_id, receiver);
                 let gw = Arc::clone(&gateway);
-                worker.run_batched(10, move |_sid, messages| {
+                worker.run_batched(20, move |_sid, messages| {
                     let gw = Arc::clone(&gw);
                     async move { gw.process_translated_batch(messages).await }
                 });
@@ -215,10 +215,10 @@ impl Gateway {
             }
         });
 
-        // Spawn background spread-shard drainer (every 50ms).
+        // Spawn background spread-shard drainer (every 25ms).
         let drain_clone = Arc::clone(&gateway);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(50));
+            let mut interval = tokio::time::interval(Duration::from_millis(25));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
