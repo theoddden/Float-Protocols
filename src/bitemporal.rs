@@ -160,7 +160,7 @@ impl BiTemporalStore {
 
         let spreads: Vec<i64> = relevant.iter().map(|m| m.spread_ms()).collect();
         let total_spread: i64 = spreads.iter().sum();
-        let avg_spread = total_spread / spreads.len() as i64;
+        let avg_spread = (total_spread as f64 / spreads.len() as f64) as i64;
         let min_spread = *spreads.iter().min().unwrap();
         let max_spread = *spreads.iter().max().unwrap();
 

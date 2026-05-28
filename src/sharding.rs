@@ -135,10 +135,18 @@ impl ShardManager {
     }
 
     /// Get or create a shard for a specific protocol
+    /// Note: Dynamically created shards do not have dedicated workers.
+    /// Use only for protocols that are handled by the spread shard or deadzone shard.
     pub fn get_shard(&self, protocol: Protocol) -> ShardId {
         let shard_id = self.protocol_to_shard_id(protocol);
 
         if !self.shards.contains_key(&shard_id) {
+            // Log warning: dynamic shards lack workers
+            tracing::warn!(
+                protocol = %protocol,
+                shard_id = shard_id.0,
+                "Creating dynamic shard without dedicated worker - messages may not be processed"
+            );
             self.create_shard(shard_id);
         }
 
@@ -238,6 +246,11 @@ impl ShardManager {
                 |v| Some(v.saturating_sub(count)),
             );
         }
+        // Track leaked messages: if shard is not being drained by a worker,
+        // messages may have been sitting in the channel without being processed
+        if !self.is_regular_shard(shard_id) && !messages.is_empty() {
+            self.messages_leaked.fetch_add(messages.len() as u64, Ordering::AcqRel);
+        }
         messages
     }
 
@@ -327,9 +340,15 @@ impl ShardManager {
     }
 
     /// Evict idle shards to free memory
+    /// Never evicts the reserved deadzone or spread shards
     pub fn evict_idle(&self, idle_threshold: Duration) {
-        self.shards
-            .retain(|_, shard| shard.last_access().elapsed() < idle_threshold);
+        self.shards.retain(|id, shard| {
+            // Never evict reserved shards
+            if *id == self.deadzone_shard_id || *id == self.spread_shard_id {
+                return true;
+            }
+            shard.last_access().elapsed() < idle_threshold
+        });
     }
 
     fn protocol_to_shard_id(&self, protocol: Protocol) -> ShardId {

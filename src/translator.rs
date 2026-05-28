@@ -30,7 +30,9 @@ impl Translator {
         let (input_tx, mut input_rx) = mpsc::channel(buffer_size);
         let (output_tx, output_rx) = mpsc::channel(buffer_size);
 
-        // Spawn async translation task
+        // Spawn async translation task only if channels will be used
+        // Note: The hot path uses translate_sync() which bypasses this entirely
+        // This task is only for async channel-based translation
         tokio::spawn(async move {
             let mut translator = ZeroCopyTranslator::new();
             while let Some(message) = input_rx.recv().await {
@@ -40,6 +42,23 @@ impl Translator {
                 }
             }
         });
+
+        Self {
+            input_tx,
+            output_rx,
+            zero_copy_translator: ZeroCopyTranslator::new(),
+        }
+    }
+
+    /// Create a translator without spawning the async task
+    /// Use this for TranslatorPool where the pool manages task spawning
+    pub fn new_without_task(buffer_size: usize) -> Self {
+        let (input_tx, input_rx) = mpsc::channel(buffer_size);
+        let (output_tx, output_rx) = mpsc::channel(buffer_size);
+
+        // Drop the receivers to prevent unused warnings
+        drop(input_rx);
+        drop(output_tx);
 
         Self {
             input_tx,
@@ -192,74 +211,69 @@ impl Translator {
         use nom::sequence::tuple;
         use nom::IResult;
 
-        type SamsaraParseResult<'a> =
-            IResult<&'a [u8], (u8, u16, &'a [u8], u64, f64, f64, u32), Error<&'a [u8]>>;
-
         // Convert Bytes to slice for nom parser
         let data_slice = data.as_ref();
 
         // Samsara binary format: [version (1)][device_id_len (2)][device_id (N)][timestamp (8)][latitude (8)][longitude (8)][payload_len (4)][payload (N)]
-        let result: SamsaraParseResult = tuple((
-            be_u8::<_, Error<&[u8]>>,                      // version
-            be_u16::<_, Error<&[u8]>>,                     // device_id_len
-            take::<usize, &[u8], Error<&[u8]>>(1024usize), // device_id (max 1024 bytes)
-            be_u64::<_, Error<&[u8]>>,                     // timestamp
-            be_f64::<_, Error<&[u8]>>,                     // latitude
-            be_f64::<_, Error<&[u8]>>,                     // longitude
-            be_u32::<_, Error<&[u8]>>,                     // payload_len
+        // First pass: parse header to get device_id_len
+        let header_result: IResult<&[u8], (u8, u16), Error<&[u8]>> = tuple((
+            be_u8::<_, Error<&[u8]>>,   // version
+            be_u16::<_, Error<&[u8]>>,  // device_id_len
         ))(data_slice);
 
-        match result {
-            Ok((
-                remaining,
-                (
-                    version,
-                    device_id_len,
-                    device_id_bytes,
-                    timestamp,
-                    latitude,
-                    longitude,
-                    payload_len,
-                ),
-            )) => {
-                // Validate version
-                if version != 1 {
-                    return Err(TranslateError::InvalidProtocol);
-                }
+        let (remaining, (version, device_id_len)) = header_result
+            .map_err(|_| TranslateError::InvalidProtocol)?;
 
-                // Validate device_id_len
-                let actual_device_id_len = device_id_len as usize;
-                if actual_device_id_len > device_id_bytes.len() {
-                    return Err(TranslateError::InvalidProtocol);
-                }
-
-                let actual_device_id = &device_id_bytes[..actual_device_id_len];
-                let device_id = String::from_utf8(actual_device_id.to_vec())
-                    .map_err(|_| TranslateError::InvalidProtocol)?;
-
-                // Extract payload
-                let actual_payload_len = payload_len as usize;
-                if remaining.len() < actual_payload_len {
-                    return Err(TranslateError::InvalidProtocol);
-                }
-                let payload = &remaining[..actual_payload_len];
-
-                // Convert to ASTS cellular format
-                // For Samsara, we pass through the payload with a cellular header
-                // Include device_id, timestamp, lat/lon in the cellular header
-                let mut cellular =
-                    Vec::with_capacity(1 + device_id.len() + 8 + 8 + 8 + payload.len());
-                cellular.push(0x07); // Samsara protocol identifier
-                cellular.extend_from_slice(device_id.as_bytes());
-                cellular.extend_from_slice(&timestamp.to_be_bytes());
-                cellular.extend_from_slice(&latitude.to_be_bytes());
-                cellular.extend_from_slice(&longitude.to_be_bytes());
-                cellular.extend_from_slice(payload);
-
-                Ok(Bytes::from(cellular))
-            }
-            Err(_) => Err(TranslateError::InvalidProtocol),
+        // Validate version
+        if version != 1 {
+            return Err(TranslateError::InvalidProtocol);
         }
+
+        let actual_device_id_len = device_id_len as usize;
+        if actual_device_id_len > 1024 {
+            return Err(TranslateError::InvalidProtocol);
+        }
+
+        // Second pass: parse device_id with actual length
+        let device_id_result: IResult<&[u8], &[u8], Error<&[u8]>> =
+            take::<usize, &[u8], Error<&[u8]>>(actual_device_id_len)(remaining);
+        let (remaining, device_id_bytes) = device_id_result
+            .map_err(|_| TranslateError::InvalidProtocol)?;
+
+        // Parse remaining fields
+        let body_result: IResult<&[u8], (u64, f64, f64, u32), Error<&[u8]>> = tuple((
+            be_u64::<_, Error<&[u8]>>,  // timestamp
+            be_f64::<_, Error<&[u8]>>,  // latitude
+            be_f64::<_, Error<&[u8]>>,  // longitude
+            be_u32::<_, Error<&[u8]>>,  // payload_len
+        ))(remaining);
+
+        let (remaining, (timestamp, latitude, longitude, payload_len)) = body_result
+            .map_err(|_| TranslateError::InvalidProtocol)?;
+
+        let device_id = String::from_utf8(device_id_bytes.to_vec())
+            .map_err(|_| TranslateError::InvalidProtocol)?;
+
+        // Extract payload
+        let actual_payload_len = payload_len as usize;
+        if remaining.len() < actual_payload_len {
+            return Err(TranslateError::InvalidProtocol);
+        }
+        let payload = &remaining[..actual_payload_len];
+
+        // Convert to ASTS cellular format
+        // For Samsara, we pass through the payload with a cellular header
+        // Include device_id, timestamp, lat/lon in the cellular header
+        let mut cellular =
+            Vec::with_capacity(1 + device_id.len() + 8 + 8 + 8 + payload.len());
+        cellular.push(0x07); // Samsara protocol identifier
+        cellular.extend_from_slice(device_id.as_bytes());
+        cellular.extend_from_slice(&timestamp.to_be_bytes());
+        cellular.extend_from_slice(&latitude.to_be_bytes());
+        cellular.extend_from_slice(&longitude.to_be_bytes());
+        cellular.extend_from_slice(payload);
+
+        Ok(Bytes::from(cellular))
     }
 
     /// Synchronous protocol translation for cache-correct hot path use.
@@ -388,6 +402,8 @@ struct ProtocolPool {
 
 impl TranslatorPool {
     /// Create a new translator pool with `pool_size` instances per protocol.
+    /// Uses new_without_task() to avoid spawning orphaned Tokio tasks
+    /// since the hot path uses translate_sync() which bypasses async channels.
     pub fn new(pool_size: usize) -> Self {
         let mut pools = HashMap::new();
         for protocol in [
@@ -400,7 +416,7 @@ impl TranslatorPool {
         ] {
             let (tx, rx) = crossbeam_channel::bounded(pool_size);
             for _ in 0..pool_size {
-                let translator = Translator::new(100);
+                let translator = Translator::new_without_task(100);
                 tx.send(translator).unwrap();
             }
             pools.insert(protocol, Arc::new(ProtocolPool { tx, rx }));

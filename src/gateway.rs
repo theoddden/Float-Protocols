@@ -295,19 +295,35 @@ impl Gateway {
                     // Apply cadence limiting for IridiumSBD
                     if msg.protocol == Protocol::IridiumSBD
                         && msg.priority != Priority::Emergency
-                        && matches!(
-                            ct.translate_message(
-                                "telemetry",
-                                Protocol::IridiumSBD,
-                                msg.priority.clone()
-                            ),
-                            TranslationAction::Drop
-                        )
                     {
-                        tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
-                        continue;
+                        let action = ct.translate_message(
+                            "telemetry",
+                            Protocol::IridiumSBD,
+                            msg.priority.clone()
+                        );
+                        match action {
+                            TranslationAction::Drop => {
+                                tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
+                                continue;
+                            }
+                            TranslationAction::Duplicate { count } => {
+                                // Duplicate the message count times for heartbeat upscaling
+                                for _ in 0..count {
+                                    normal.push(msg.clone());
+                                }
+                                continue;
+                            }
+                            TranslationAction::Send => {
+                                normal.push(msg);
+                            }
+                            TranslationAction::Buffer { .. } => {
+                                // Buffering not implemented, treat as send
+                                normal.push(msg);
+                            }
+                        }
+                    } else {
+                        normal.push(msg);
                     }
-                    normal.push(msg);
                 }
             }
             (spread, normal)

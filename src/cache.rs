@@ -151,15 +151,33 @@ impl AsyncCache {
         end_ms: u64,
     ) {
         let mut entries = self.entries.write();
+        let mut order = self.eviction_order.lock();
         entries.retain(|key, entry| {
-            key.protocol != protocol || !(entry.t_event >= start_ms && entry.t_event <= end_ms)
+            let should_retain = key.protocol != protocol || !(entry.t_event >= start_ms && entry.t_event <= end_ms);
+            if !should_retain {
+                // Remove from eviction order to prevent ghost keys
+                if let Some(pos) = order.iter().position(|k| k == key) {
+                    order.remove(pos);
+                }
+            }
+            should_retain
         });
     }
 
     /// Invalidate all cache entries for a specific protocol.
     pub async fn invalidate_protocol(&self, protocol: Protocol) {
         let mut entries = self.entries.write();
-        entries.retain(|key, _| key.protocol != protocol);
+        let mut order = self.eviction_order.lock();
+        entries.retain(|key, _| {
+            let should_retain = key.protocol != protocol;
+            if !should_retain {
+                // Remove from eviction order to prevent ghost keys
+                if let Some(pos) = order.iter().position(|k| k == key) {
+                    order.remove(pos);
+                }
+            }
+            should_retain
+        });
     }
 
     /// Clear all cache entries.

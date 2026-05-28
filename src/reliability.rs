@@ -20,6 +20,13 @@ pub fn init_startup_time() {
     );
 }
 
+/// Auto-initialize on module load to prevent missing initialization
+pub fn ensure_startup_time_initialized() {
+    if STARTUP_TIME.load(Ordering::Acquire) == 0 {
+        init_startup_time();
+    }
+}
+
 static STARTUP_TIME: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +42,7 @@ pub struct CircuitBreaker {
     last_failure_time: Arc<AtomicU64>,
     failure_threshold: u32,
     recovery_timeout: Duration,
+    half_open_calls: Arc<AtomicU32>, // Track concurrent half-open calls
 }
 
 impl CircuitBreaker {
@@ -45,6 +53,7 @@ impl CircuitBreaker {
             last_failure_time: Arc::new(AtomicU64::new(0)),
             failure_threshold,
             recovery_timeout,
+            half_open_calls: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -52,24 +61,9 @@ impl CircuitBreaker {
     where
         F: std::future::Future<Output = Result<T, E>>,
     {
-        if self.is_open() {
-            return Err(CircuitBreakerError::Open);
-        }
-
-        match f.await {
-            Ok(result) => {
-                self.on_success();
-                Ok(result)
-            }
-            Err(err) => {
-                self.on_failure();
-                Err(CircuitBreakerError::Inner(err))
-            }
-        }
-    }
-
-    fn is_open(&self) -> bool {
         let state = self.state.load(Ordering::Acquire) as u8;
+
+        // Check if circuit is open
         if state == CircuitState::Open as u8 {
             // Check if recovery timeout has elapsed
             let last_failure = self.last_failure_time.load(Ordering::Acquire);
@@ -84,11 +78,40 @@ impl CircuitBreaker {
                 // Transition to HalfOpen
                 self.state
                     .store(CircuitState::HalfOpen as u32, Ordering::Release);
-                return false;
+            } else {
+                return Err(CircuitBreakerError::Open);
             }
-            return true;
         }
-        false
+
+        // If in HalfOpen state, limit concurrent calls to 1
+        if state == CircuitState::HalfOpen as u8 {
+            if self.half_open_calls.fetch_add(1, Ordering::AcqRel) > 0 {
+                self.half_open_calls.fetch_sub(1, Ordering::AcqRel);
+                return Err(CircuitBreakerError::Open);
+            }
+        }
+
+        match f.await {
+            Ok(result) => {
+                self.on_success();
+                if state == CircuitState::HalfOpen as u8 {
+                    self.half_open_calls.fetch_sub(1, Ordering::AcqRel);
+                }
+                Ok(result)
+            }
+            Err(err) => {
+                self.on_failure();
+                if state == CircuitState::HalfOpen as u8 {
+                    self.half_open_calls.fetch_sub(1, Ordering::AcqRel);
+                }
+                Err(CircuitBreakerError::Inner(err))
+            }
+        }
+    }
+
+    fn is_open(&self) -> bool {
+        let state = self.state.load(Ordering::Acquire) as u8;
+        state == CircuitState::Open as u8
     }
 
     fn on_success(&self) {
