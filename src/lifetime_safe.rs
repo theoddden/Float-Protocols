@@ -94,11 +94,10 @@ impl HybridTranslator {
         iridium_msg: &crate::iridium_sbd::IridiumSBDMessage,
     ) -> Option<SafeTranslationResult> {
         // Use arena buffer for actual buffer reuse
-        let buffer = self._arena.get_buffer();
+        let buffer_idx = self._arena.next_index;
+        let buffer = self._arena.get_buffer_at(buffer_idx);
         let size = self.translate_zero_alloc(iridium_msg, buffer)?;
-        let data = self
-            ._arena
-            .clone_to_bytes_at(self._arena.next_index - 1, size);
+        let data = self._arena.clone_to_bytes_at(buffer_idx, size);
         Some(SafeTranslationResult::new(data))
     }
 }
