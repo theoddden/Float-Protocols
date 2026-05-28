@@ -293,17 +293,17 @@ impl Gateway {
                     spread.push(msg);
                 } else {
                     // Apply cadence limiting for IridiumSBD
-                    if msg.protocol == Protocol::IridiumSBD
-                        && msg.priority != Priority::Emergency
-                    {
+                    if msg.protocol == Protocol::IridiumSBD && msg.priority != Priority::Emergency {
                         let action = ct.translate_message(
                             "telemetry",
                             Protocol::IridiumSBD,
-                            msg.priority.clone()
+                            msg.priority.clone(),
                         );
                         match action {
                             TranslationAction::Drop => {
-                                tracing::debug!("IridiumSBD message dropped by cadence rate limiter");
+                                tracing::debug!(
+                                    "IridiumSBD message dropped by cadence rate limiter"
+                                );
                                 continue;
                             }
                             TranslationAction::Duplicate { count } => {

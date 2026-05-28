@@ -249,7 +249,8 @@ impl ShardManager {
         // Track leaked messages: if shard is not being drained by a worker,
         // messages may have been sitting in the channel without being processed
         if !self.is_regular_shard(shard_id) && !messages.is_empty() {
-            self.messages_leaked.fetch_add(messages.len() as u64, Ordering::AcqRel);
+            self.messages_leaked
+                .fetch_add(messages.len() as u64, Ordering::AcqRel);
         }
         messages
     }

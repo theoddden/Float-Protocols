@@ -153,7 +153,8 @@ impl AsyncCache {
         let mut entries = self.entries.write();
         let mut order = self.eviction_order.lock();
         entries.retain(|key, entry| {
-            let should_retain = key.protocol != protocol || !(entry.t_event >= start_ms && entry.t_event <= end_ms);
+            let should_retain =
+                key.protocol != protocol || !(entry.t_event >= start_ms && entry.t_event <= end_ms);
             if !should_retain {
                 // Remove from eviction order to prevent ghost keys
                 if let Some(pos) = order.iter().position(|k| k == key) {

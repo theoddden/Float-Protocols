@@ -96,7 +96,9 @@ impl HybridTranslator {
         // Use arena buffer for actual buffer reuse
         let buffer = self._arena.get_buffer();
         let size = self.translate_zero_alloc(iridium_msg, buffer)?;
-        let data = self._arena.clone_to_bytes_at(self._arena.next_index - 1, size);
+        let data = self
+            ._arena
+            .clone_to_bytes_at(self._arena.next_index - 1, size);
         Some(SafeTranslationResult::new(data))
     }
 }

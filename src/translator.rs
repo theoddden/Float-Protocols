@@ -217,12 +217,12 @@ impl Translator {
         // Samsara binary format: [version (1)][device_id_len (2)][device_id (N)][timestamp (8)][latitude (8)][longitude (8)][payload_len (4)][payload (N)]
         // First pass: parse header to get device_id_len
         let header_result: IResult<&[u8], (u8, u16), Error<&[u8]>> = tuple((
-            be_u8::<_, Error<&[u8]>>,   // version
-            be_u16::<_, Error<&[u8]>>,  // device_id_len
+            be_u8::<_, Error<&[u8]>>,  // version
+            be_u16::<_, Error<&[u8]>>, // device_id_len
         ))(data_slice);
 
-        let (remaining, (version, device_id_len)) = header_result
-            .map_err(|_| TranslateError::InvalidProtocol)?;
+        let (remaining, (version, device_id_len)) =
+            header_result.map_err(|_| TranslateError::InvalidProtocol)?;
 
         // Validate version
         if version != 1 {
@@ -237,19 +237,19 @@ impl Translator {
         // Second pass: parse device_id with actual length
         let device_id_result: IResult<&[u8], &[u8], Error<&[u8]>> =
             take::<usize, &[u8], Error<&[u8]>>(actual_device_id_len)(remaining);
-        let (remaining, device_id_bytes) = device_id_result
-            .map_err(|_| TranslateError::InvalidProtocol)?;
+        let (remaining, device_id_bytes) =
+            device_id_result.map_err(|_| TranslateError::InvalidProtocol)?;
 
         // Parse remaining fields
         let body_result: IResult<&[u8], (u64, f64, f64, u32), Error<&[u8]>> = tuple((
-            be_u64::<_, Error<&[u8]>>,  // timestamp
-            be_f64::<_, Error<&[u8]>>,  // latitude
-            be_f64::<_, Error<&[u8]>>,  // longitude
-            be_u32::<_, Error<&[u8]>>,  // payload_len
+            be_u64::<_, Error<&[u8]>>, // timestamp
+            be_f64::<_, Error<&[u8]>>, // latitude
+            be_f64::<_, Error<&[u8]>>, // longitude
+            be_u32::<_, Error<&[u8]>>, // payload_len
         ))(remaining);
 
-        let (remaining, (timestamp, latitude, longitude, payload_len)) = body_result
-            .map_err(|_| TranslateError::InvalidProtocol)?;
+        let (remaining, (timestamp, latitude, longitude, payload_len)) =
+            body_result.map_err(|_| TranslateError::InvalidProtocol)?;
 
         let device_id = String::from_utf8(device_id_bytes.to_vec())
             .map_err(|_| TranslateError::InvalidProtocol)?;
@@ -264,8 +264,7 @@ impl Translator {
         // Convert to ASTS cellular format
         // For Samsara, we pass through the payload with a cellular header
         // Include device_id, timestamp, lat/lon in the cellular header
-        let mut cellular =
-            Vec::with_capacity(1 + device_id.len() + 8 + 8 + 8 + payload.len());
+        let mut cellular = Vec::with_capacity(1 + device_id.len() + 8 + 8 + 8 + payload.len());
         cellular.push(0x07); // Samsara protocol identifier
         cellular.extend_from_slice(device_id.as_bytes());
         cellular.extend_from_slice(&timestamp.to_be_bytes());
