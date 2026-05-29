@@ -1,6 +1,6 @@
 # Float Protocols
 
-**1.1MB binary** - Ultra-lightweight, 100% Rust, async protocol-translation bridge for dead zone communication systems.
+**Lightweight, 100% Rust, async protocol-translation bridge for dead zone communication systems.
 
 **STAR THE REPO, IT'S A HUGE HELP**
 
