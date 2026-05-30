@@ -62,7 +62,7 @@ criterion = "0.5"
 
 [features]
 default = ["std"]
-std = ["tokio/rt-multi-thread"]
+std = ["tokio/rt-multi-thread", "tracing-subscriber"]
 tracing = ["tracing-subscriber"]
 metrics = ["dep:metrics"]
 no-std = []  # For embedded targets
