@@ -9,8 +9,8 @@ repository = "https://github.com/theoddden/float-protocols"
 readme = "README.md"
 
 [dependencies]
-# Async runtime - optimized for low latency
-tokio = { version = "1.35", features = ["rt-multi-thread", "net", "time", "io-util", "sync", "macros", "test-util", "signal"], default-features = false }
+# Async runtime - minimal features for size optimization
+tokio = { version = "1.35", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal"], default-features = false }
 tokio-util = { version = "0.7", features = ["codec", "compat"], default-features = false }
 
 # Core - minimal dependencies for ultra-lightweight footprint
@@ -27,7 +27,7 @@ zstd = "0.13"  # Compression for VSAT
 crc = "3.0"  # CRC checksums for payload validation
 flate2 = "1.0"  # Gzip compression for OTel bundles
 
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 dashmap = "6.0"           # Lock-free concurrent hashmap for sharding
 parking_lot = "0.12"      # Non-poisoning mutex/rwlock, faster than std on the async hot path
@@ -42,11 +42,17 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 metrics = { version = "0.21", default-features = false, optional = true }
 
 [profile.release]
-opt-level = "z"  # Optimize for size
-lto = true       # Link-time optimization
-codegen-units = 1
-strip = true
-panic = "abort"  # Reduce binary size
+opt-level = "z"           # Optimize for size
+lto = "fat"              # Fat LTO for better optimization
+codegen-units = 1         # Single codegen unit
+strip = true              # Strip symbols
+panic = "abort"           # Abort on panic (reduces size)
+overflow-checks = false   # Disable overflow checks (unsafe)
+debug-assertions = false  # Disable debug assertions
+
+[profile.release.package."*"]
+opt-level = "z"           # Optimize dependencies for size
+codegen-units = 1         # Single codegen unit for dependencies
 
 [profile.dev]
 opt-level = "s"  # Optimize for size in dev too
@@ -55,8 +61,8 @@ opt-level = "s"  # Optimize for size in dev too
 criterion = "0.5"
 
 [features]
-default = ["std", "tracing"]
-std = ["tokio/rt-multi-thread", "tracing-subscriber"]
+default = ["std"]
+std = ["tokio/rt-multi-thread"]
 tracing = ["tracing-subscriber"]
 metrics = ["dep:metrics"]
 no-std = []  # For embedded targets
