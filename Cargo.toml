@@ -19,12 +19,14 @@ bytes = { version = "1.5", features = ["serde"] }
 # Serialization (minimal)
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
+bincode = "1.3"
 
 # Protocol parsing
 nom = "7.1"  # Parser combinator for protocol parsing
 hex = "0.4"  # Hex encoding/decoding
 zstd = "0.13"  # Compression for VSAT
 crc = "3.0"  # CRC checksums for payload validation
+crc32fast = "1.3"  # CRC32 for WAL
 flate2 = "1.0"  # Gzip compression for OTel bundles
 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
@@ -40,6 +42,23 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 
 # Metrics (optional for production monitoring)
 metrics = { version = "0.21", default-features = false, optional = true }
+
+# Hardware I/O (Raspberry Pi CM5)
+rppal = "0.17"          # GPIO, SPI, I2C
+serialport = "4.6"      # UART (BG95-S5, MAX3232)
+spidev = "0.5"          # Linux spidev (SX1262)
+socketcan = "3.3"       # Linux SocketCAN
+
+# GNSS
+nmea = "0.7"            # NMEA sentence parser
+
+# Provisioning / PKI
+rcgen = "0.13"          # X.509 CSR generation
+rand = "0.8"            # Random number generation
+
+# Crypto
+sha2 = "0.10"
+hmac = "0.12"
 
 [profile.release]
 opt-level = "z"           # Optimize for size

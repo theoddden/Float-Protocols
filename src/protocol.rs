@@ -16,6 +16,7 @@ pub enum Protocol {
     Samsara,
     NIDD,
     ASTSpaceMobile,
+    LoRaMesh,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -138,6 +139,7 @@ impl fmt::Display for Protocol {
             Protocol::Samsara => write!(f, "Samsara"),
             Protocol::NIDD => write!(f, "NIDD"),
             Protocol::ASTSpaceMobile => write!(f, "ASTSpaceMobile"),
+            Protocol::LoRaMesh => write!(f, "LoRaMesh"),
         }
     }
 }
@@ -154,6 +156,7 @@ impl Protocol {
             Protocol::Samsara => 1048576,          // Samsara cellular broadband (1MB typical)
             Protocol::NIDD => 1600,                // 3GPP TS 24.582 NIDD max payload
             Protocol::ASTSpaceMobile => 120000000, // 120 Mbps max theoretical
+            Protocol::LoRaMesh => 250,             // LoRa PHY limit
         }
     }
 
@@ -181,6 +184,7 @@ impl Protocol {
             Protocol::HFVHF => 30_000,
             Protocol::NIDD => 10_000,
             Protocol::ASTSpaceMobile => 1_000,
+            Protocol::LoRaMesh => 60_000,
         }
     }
 }
