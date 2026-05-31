@@ -20,14 +20,16 @@
 //! 12. Graceful shutdown: flush WAL, close dm-crypt, kick watchdog one last time
 
 use float_protocols::gateway::{ASTSCredentials, Gateway, TelemetryConfig};
-use float_protocols::hardware::{ATECC608B, BG95Modem, SX1262, Watchdog, LedController, LedState, ConfigButton, ButtonEvent};
-use float_protocols::storage::EncryptedStore;
-use float_protocols::sensor::{Rs232Reader, Rs485Reader, CanReader};
 use float_protocols::gnss::{GnssService, RtcSync};
-use float_protocols::provisioning::{ProvisioningService, LoRaProvisioningMode};
+use float_protocols::hardware::{
+    ATECC608B, BG95Modem, ButtonEvent, ConfigButton, LedController, LedState, SX1262, Watchdog,
+};
 use float_protocols::lora::LoRaMeshAggregator;
 use float_protocols::protocol::{Message, Priority, Protocol};
+use float_protocols::provisioning::{LoRaProvisioningMode, ProvisioningService};
 use float_protocols::reliability::init_startup_time;
+use float_protocols::sensor::{CanReader, Rs232Reader, Rs485Reader};
+use float_protocols::storage::EncryptedStore;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};

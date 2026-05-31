@@ -5,10 +5,10 @@
 //! - RS-485: Modbus RTU
 //! - CAN Bus: J1939, CANopen
 
+pub mod can;
 pub mod rs232;
 pub mod rs485;
-pub mod can;
 
+pub use can::CanReader;
 pub use rs232::Rs232Reader;
 pub use rs485::Rs485Reader;
-pub use can::CanReader;

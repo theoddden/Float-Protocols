@@ -12,7 +12,7 @@ use crate::protocol::Message;
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write, Seek, SeekFrom};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -74,8 +74,7 @@ impl WalHeader {
 
         let version = u16::from_be_bytes([bytes[8], bytes[9]]);
         let sequence = u64::from_be_bytes([
-            bytes[10], bytes[11], bytes[12], bytes[13],
-            bytes[14], bytes[15], bytes[16], bytes[17],
+            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15], bytes[16], bytes[17],
         ]);
 
         Some(Self {
@@ -155,7 +154,10 @@ impl Wal {
     /// Check if file is new (empty or no valid header)
     fn is_new_file(&self) -> Result<bool, WalError> {
         let file = self.file.lock().await;
-        let metadata = file.get_ref().metadata().map_err(|e| WalError::FileRead(e.to_string()))?;
+        let metadata = file
+            .get_ref()
+            .metadata()
+            .map_err(|e| WalError::FileRead(e.to_string()))?;
         Ok(metadata.len() == 0)
     }
 
@@ -165,9 +167,12 @@ impl Wal {
         let header_bytes = header.to_bytes();
 
         let mut file = self.file.lock().await;
-        file.seek(SeekFrom::Start(0)).map_err(|e| WalError::FileSeek(e.to_string()))?;
-        file.write_all(&header_bytes).map_err(|e| WalError::FileWrite(e.to_string()))?;
-        file.flush().map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| WalError::FileSeek(e.to_string()))?;
+        file.write_all(&header_bytes)
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.flush()
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         Ok(())
     }
@@ -179,10 +184,11 @@ impl Wal {
 
         // Read header
         let mut header_bytes = vec![0u8; WAL_HEADER_SIZE];
-        reader.read_exact(&mut header_bytes).map_err(|e| WalError::FileRead(e.to_string()))?;
+        reader
+            .read_exact(&mut header_bytes)
+            .map_err(|e| WalError::FileRead(e.to_string()))?;
 
-        let header = WalHeader::from_bytes(&header_bytes)
-            .ok_or(WalError::InvalidHeader)?;
+        let header = WalHeader::from_bytes(&header_bytes).ok_or(WalError::InvalidHeader)?;
 
         *self.sequence.lock().await = header.sequence;
 
@@ -193,10 +199,14 @@ impl Wal {
                 Ok(_) => {
                     let len = u32::from_be_bytes(len_bytes) as usize;
                     let mut data = vec![0u8; len];
-                    reader.read_exact(&mut data).map_err(|e| WalError::FileRead(e.to_string()))?;
+                    reader
+                        .read_exact(&mut data)
+                        .map_err(|e| WalError::FileRead(e.to_string()))?;
 
                     let mut crc_bytes = [0u8; WAL_ENTRY_FOOTER_SIZE];
-                    reader.read_exact(&mut crc_bytes).map_err(|e| WalError::FileRead(e.to_string()))?;
+                    reader
+                        .read_exact(&mut crc_bytes)
+                        .map_err(|e| WalError::FileRead(e.to_string()))?;
 
                     // Verify CRC
                     let computed_crc = compute_crc32(&data);
@@ -231,7 +241,8 @@ impl Wal {
         let crc = compute_crc32(&data);
 
         let mut file = self.file.lock().await;
-        file.seek(SeekFrom::End(0)).map_err(|e| WalError::FileSeek(e.to_string()))?;
+        file.seek(SeekFrom::End(0))
+            .map_err(|e| WalError::FileSeek(e.to_string()))?;
 
         // Write length
         file.write_all(&(data.len() as u32).to_be_bytes())
@@ -244,8 +255,11 @@ impl Wal {
         file.write_all(&crc.to_be_bytes()).map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Sync to disk
-        file.flush().map_err(|e| WalError::FileWrite(e.to_string()))?;
-        file.get_ref().sync_all().map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.flush()
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.get_ref()
+            .sync_all()
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         Ok(seq)
     }
@@ -267,10 +281,14 @@ impl Wal {
                 Ok(_) => {
                     let len = u32::from_be_bytes(len_bytes) as usize;
                     let mut data = vec![0u8; len];
-                    reader.read_exact(&mut data).map_err(|e| WalError::FileRead(e.to_string()))?;
+                    reader
+                        .read_exact(&mut data)
+                        .map_err(|e| WalError::FileRead(e.to_string()))?;
 
                     let mut crc_bytes = [0u8; WAL_ENTRY_FOOTER_SIZE];
-                    reader.read_exact(&mut crc_bytes).map_err(|e| WalError::FileRead(e.to_string()))?;
+                    reader
+                        .read_exact(&mut crc_bytes)
+                        .map_err(|e| WalError::FileRead(e.to_string()))?;
 
                     // Verify CRC
                     let computed_crc = compute_crc32(&data);
@@ -317,12 +335,15 @@ impl Wal {
 
         // Truncate file
         let mut file = self.file.lock().await;
-        file.set_len(0).map_err(|e| WalError::FileWrite(e.to_string()))?;
-        file.seek(SeekFrom::Start(0)).map_err(|e| WalError::FileSeek(e.to_string()))?;
+        file.set_len(0)
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| WalError::FileSeek(e.to_string()))?;
 
         // Write header
         let header = WalHeader::new(retained.len() as u64);
-        file.write_all(&header.to_bytes()).map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.write_all(&header.to_bytes())
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Write retained entries
         for entry in retained {
@@ -331,12 +352,17 @@ impl Wal {
 
             file.write_all(&(data.len() as u32).to_be_bytes())
                 .map_err(|e| WalError::FileWrite(e.to_string()))?;
-            file.write_all(&data).map_err(|e| WalError::FileWrite(e.to_string()))?;
-            file.write_all(&crc.to_be_bytes()).map_err(|e| WalError::FileWrite(e.to_string()))?;
+            file.write_all(&data)
+                .map_err(|e| WalError::FileWrite(e.to_string()))?;
+            file.write_all(&crc.to_be_bytes())
+                .map_err(|e| WalError::FileWrite(e.to_string()))?;
         }
 
-        file.flush().map_err(|e| WalError::FileWrite(e.to_string()))?;
-        file.get_ref().sync_all().map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.flush()
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.get_ref()
+            .sync_all()
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Update sequence
         *self.sequence.lock().await = retained.len() as u64;

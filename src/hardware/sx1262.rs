@@ -139,7 +139,7 @@ pub enum IqMode {
 /// LoRa configuration
 #[derive(Debug, Clone)]
 pub struct LoRaConfig {
-    pub frequency: u32,      // Hz (e.g., 915000000 for 915 MHz)
+    pub frequency: u32, // Hz (e.g., 915000000 for 915 MHz)
     pub bandwidth: Bandwidth,
     pub spreading_factor: SpreadingFactor,
     pub coding_rate: CodingRate,
@@ -147,7 +147,7 @@ pub struct LoRaConfig {
     pub crc: CrcMode,
     pub iq_mode: IqMode,
     pub preamble_length: u16,
-    pub tx_power: i8,         // dBm (-17 to +22)
+    pub tx_power: i8, // dBm (-17 to +22)
 }
 
 impl Default for LoRaConfig {
@@ -258,7 +258,9 @@ impl SX1262 {
     fn wake_up(&mut self) -> Result<(), Sx1262Error> {
         self.cs.set_low();
         let cmd = [Opcode::SetStandby as u8, 0x01]; // STDBY_RC
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         std::thread::sleep(Duration::from_millis(1));
         Ok(())
@@ -268,7 +270,9 @@ impl SX1262 {
     fn set_packet_type(&mut self, pkt_type: PacketType) -> Result<(), Sx1262Error> {
         self.cs.set_low();
         let cmd = [Opcode::SetPacketType as u8, pkt_type as u8];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -307,7 +311,9 @@ impl SX1262 {
             (rf_reg >> 8) as u8,
             rf_reg as u8,
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -325,7 +331,9 @@ impl SX1262 {
             self.config.crc as u8,
             self.config.iq_mode as u8,
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -341,7 +349,9 @@ impl SX1262 {
             self.config.crc as u8,
             0x00, // IQ inversion
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -354,7 +364,9 @@ impl SX1262 {
             power_dbm as u8,
             0x04, // Ramp time (200us)
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -367,7 +379,9 @@ impl SX1262 {
             0x00, // TX base address
             0x00, // RX base address
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -380,7 +394,9 @@ impl SX1262 {
             0xFF, // Clear all IRQs
             0xFF,
         ];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -393,7 +409,9 @@ impl SX1262 {
         // Set TX mode
         self.cs.set_low();
         let cmd = [Opcode::SetTx as u8, 0x00]; // Timeout 0 (no timeout)
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
 
         // Wait for TX done IRQ
@@ -410,7 +428,9 @@ impl SX1262 {
         // Set RX mode
         self.cs.set_low();
         let cmd = [Opcode::SetRx as u8, 0x00]; // Timeout 0 (continuous)
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
 
         // Wait for RX done IRQ
@@ -438,7 +458,9 @@ impl SX1262 {
         self.cs.set_low();
         let mut cmd = vec![Opcode::WriteBuffer as u8, 0x00]; // Offset 0
         cmd.extend(data);
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         self.cs.set_high();
         Ok(())
     }
@@ -452,9 +474,13 @@ impl SX1262 {
         self.cs.set_low();
         let mut cmd = vec![Opcode::ReadBuffer as u8, 0x00]; // Offset 0
         cmd.extend(vec![0u8; len]);
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         let mut response = vec![0u8; len + 2];
-        self.spi.read(&mut response).map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
+        self.spi
+            .read(&mut response)
+            .map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
         self.cs.set_high();
 
         Ok(response[2..].to_vec())
@@ -464,9 +490,13 @@ impl SX1262 {
     fn read_register(&mut self, reg: Register) -> Result<u8, Sx1262Error> {
         self.cs.set_low();
         let cmd = [Opcode::ReadRegister as u8, reg as u8, 0x00];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         let mut response = [0u8; 2];
-        self.spi.read(&mut response).map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
+        self.spi
+            .read(&mut response)
+            .map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
         self.cs.set_high();
         Ok(response[1])
     }
@@ -495,9 +525,13 @@ impl SX1262 {
     fn get_irq_status(&mut self) -> Result<u16, Sx1262Error> {
         self.cs.set_low();
         let cmd = [Opcode::GetIrqStatus as u8, 0x00, 0x00];
-        self.spi.write(&cmd).map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
+        self.spi
+            .write(&cmd)
+            .map_err(|e| Sx1262Error::SpiWrite(e.to_string()))?;
         let mut response = [0u8; 3];
-        self.spi.read(&mut response).map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
+        self.spi
+            .read(&mut response)
+            .map_err(|e| Sx1262Error::SpiRead(e.to_string()))?;
         self.cs.set_high();
         Ok(u16::from_be_bytes([response[1], response[2]]))
     }

@@ -3,8 +3,8 @@
 //! Aggregates sensor data from Float Node hubs over LoRa.
 //! Decodes node payloads, forwards to gateway.
 
-use crate::hardware::sx1262::{SX1262, LoRaFrame};
-use crate::lora::node_registry::{NodeRegistry, LoRaNode};
+use crate::hardware::sx1262::{LoRaFrame, SX1262};
+use crate::lora::node_registry::{LoRaNode, NodeRegistry};
 use crate::protocol::{Message, Priority, Protocol};
 use bytes::Bytes;
 use std::sync::Arc;
@@ -58,13 +58,17 @@ impl LoRaMeshAggregator {
     }
 
     /// Decode sensor frame from LoRa node
-    fn decode_sensor_frame(frame: &LoRaFrame, registry: &NodeRegistry) -> Result<Message, MeshError> {
+    fn decode_sensor_frame(
+        frame: &LoRaFrame,
+        registry: &NodeRegistry,
+    ) -> Result<Message, MeshError> {
         if frame.data.len() < 12 {
             return Err(MeshError::InvalidFrame);
         }
 
         // Frame format: [node_id (4)][seq (2)][payload_type (1)][payload (N)][mic (4)]
-        let node_id = u32::from_be_bytes([frame.data[0], frame.data[1], frame.data[2], frame.data[3]]);
+        let node_id =
+            u32::from_be_bytes([frame.data[0], frame.data[1], frame.data[2], frame.data[3]]);
         let seq = u16::from_be_bytes([frame.data[4], frame.data[5]]);
         let payload_type = frame.data[6];
         let payload = &frame.data[7..frame.data.len() - 4];

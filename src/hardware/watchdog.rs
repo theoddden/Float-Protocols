@@ -49,7 +49,10 @@ impl Watchdog {
             }
         });
 
-        tracing::info!("TPS3813 watchdog initialized, kicking every {}ms", WATCHDOG_KICK_INTERVAL_MS);
+        tracing::info!(
+            "TPS3813 watchdog initialized, kicking every {}ms",
+            WATCHDOG_KICK_INTERVAL_MS
+        );
         Ok(watchdog)
     }
 

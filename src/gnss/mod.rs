@@ -6,5 +6,5 @@
 pub mod gnss;
 pub mod rtc;
 
-pub use gnss::{GnssService, GnssFix};
+pub use gnss::{GnssFix, GnssService};
 pub use rtc::RtcSync;

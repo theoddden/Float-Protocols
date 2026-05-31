@@ -14,8 +14,8 @@
 //! - Solid red: Fault (circuit breaker open / ATECC error)
 
 use rppal::gpio::{Gpio, Level, OutputPin};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 

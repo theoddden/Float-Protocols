@@ -34,8 +34,8 @@ pub struct CanReader {
 impl CanReader {
     /// Initialize CAN reader
     pub fn new(tx: mpsc::Sender<Message>) -> Result<Self, CanError> {
-        let socket = CANSocket::open(CAN_INTERFACE)
-            .map_err(|e| CanError::SocketOpen(e.to_string()))?;
+        let socket =
+            CANSocket::open(CAN_INTERFACE).map_err(|e| CanError::SocketOpen(e.to_string()))?;
 
         // Set filters for J1939 and CANopen
         socket

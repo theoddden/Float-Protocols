@@ -80,7 +80,12 @@ impl Rs485Reader {
     }
 
     /// Send Modbus RTU request
-    pub fn send_modbus_request(&mut self, addr: u8, func: u8, data: &[u8]) -> Result<(), Rs485Error> {
+    pub fn send_modbus_request(
+        &mut self,
+        addr: u8,
+        func: u8,
+        data: &[u8],
+    ) -> Result<(), Rs485Error> {
         // Set to transmit mode
         self.de_re.set_high();
         std::thread::sleep(Duration::from_millis(1));

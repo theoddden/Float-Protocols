@@ -17,11 +17,11 @@ pub struct GnssFix {
     pub altitude: f64,
     pub speed: f64,
     pub heading: f64,
-    pub fix_quality: u8,  // 0=invalid, 1=GPS, 2=DGPS
+    pub fix_quality: u8, // 0=invalid, 1=GPS, 2=DGPS
     pub satellites: u8,
-    pub timestamp: u64,   // Unix timestamp in milliseconds
-    pub hdop: f64,        // Horizontal dilution of precision
-    pub vdop: f64,        // Vertical dilution of precision
+    pub timestamp: u64, // Unix timestamp in milliseconds
+    pub hdop: f64,      // Horizontal dilution of precision
+    pub vdop: f64,      // Vertical dilution of precision
 }
 
 impl Default for GnssFix {

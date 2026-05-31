@@ -54,11 +54,11 @@ pub enum NetworkType {
 /// Signal quality
 #[derive(Debug, Clone)]
 pub struct SignalQuality {
-    pub rssi: i8,       // Received Signal Strength Indicator (0-31, 99=unknown)
-    pub ber: u8,        // Bit Error Rate (0-7, 99=unknown)
-    pub rsrp: i16,      // Reference Signal Received Power (dBm)
-    pub rsrq: i8,       // Reference Signal Received Quality (dB)
-    pub sinr: i8,       // Signal to Interference plus Noise Ratio (dB)
+    pub rssi: i8,  // Received Signal Strength Indicator (0-31, 99=unknown)
+    pub ber: u8,   // Bit Error Rate (0-7, 99=unknown)
+    pub rsrp: i16, // Reference Signal Received Power (dBm)
+    pub rsrq: i8,  // Reference Signal Received Quality (dB)
+    pub sinr: i8,  // Signal to Interference plus Noise Ratio (dB)
 }
 
 /// GNSS fix
@@ -69,9 +69,9 @@ pub struct GnssFix {
     pub altitude: f64,
     pub speed: f64,
     pub heading: f64,
-    pub fix_quality: u8,  // 0=invalid, 1=GPS, 2=DGPS
+    pub fix_quality: u8, // 0=invalid, 1=GPS, 2=DGPS
     pub satellites: u8,
-    pub timestamp: u64,   // Unix timestamp in milliseconds
+    pub timestamp: u64, // Unix timestamp in milliseconds
 }
 
 /// BG95-S5 modem driver

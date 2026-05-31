@@ -14,7 +14,7 @@ use std::path::Path;
 pub struct ProvisioningConfig {
     pub gateway_id: String,
     pub site_id: String,
-    pub lora_freq: u32,  // 915 or 868 MHz
+    pub lora_freq: u32, // 915 or 868 MHz
     pub ca_endpoint: String,
 }
 
@@ -132,8 +132,7 @@ impl ProvisioningService {
             return Err(ProvisioningError::ConfigNotMounted);
         }
 
-        fs::write(cert_path, cert)
-            .map_err(|e| ProvisioningError::FileWrite(e.to_string()))?;
+        fs::write(cert_path, cert).map_err(|e| ProvisioningError::FileWrite(e.to_string()))?;
 
         tracing::info!("Certificate stored at {}", cert_path);
         Ok(())
@@ -217,8 +216,7 @@ impl ProvisioningService {
         }
 
         if Path::new(cert_path).exists() {
-            fs::remove_file(cert_path)
-                .map_err(|e| ProvisioningError::FileDelete(e.to_string()))?;
+            fs::remove_file(cert_path).map_err(|e| ProvisioningError::FileDelete(e.to_string()))?;
         }
 
         tracing::info!("Factory reset complete");

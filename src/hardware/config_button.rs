@@ -12,8 +12,8 @@
 //! Debounce: 50ms
 
 use rppal::gpio::{Gpio, Level, Trigger};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration, Instant};
 
@@ -96,13 +96,17 @@ impl ConfigButton {
                         } else {
                             // Button released
                             pressed_clone.store(false, Ordering::Relaxed);
-                            let duration = press_start_clone.blocking_lock().take().map(|start| start.elapsed());
+                            let duration = press_start_clone
+                                .blocking_lock()
+                                .take()
+                                .map(|start| start.elapsed());
 
                             if let Some(d) = duration {
                                 if d >= Duration::from_millis(FACTORY_RESET_HOLD_MS) {
                                     let _ = event_tx_clone.blocking_send(ButtonEvent::FactoryReset);
                                 } else if d >= Duration::from_millis(PROVISIONING_HOLD_MS) {
-                                    let _ = event_tx_clone.blocking_send(ButtonEvent::ProvisioningMode);
+                                    let _ =
+                                        event_tx_clone.blocking_send(ButtonEvent::ProvisioningMode);
                                 }
                             }
 

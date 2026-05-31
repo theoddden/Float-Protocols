@@ -159,10 +159,7 @@ impl EncryptedStore {
 
     /// Persist snapshot to disk
     pub async fn persist_snapshot(&self, snapshot: &Snapshot) -> Result<(), StoreError> {
-        let snapshot_path = format!(
-            "{}/snapshots/{}.bin",
-            self.mount_point, snapshot.id
-        );
+        let snapshot_path = format!("{}/snapshots/{}.bin", self.mount_point, snapshot.id);
 
         // Ensure snapshots directory exists
         let snapshots_dir = format!("{}/snapshots", self.mount_point);
@@ -172,12 +169,11 @@ impl EncryptedStore {
         }
 
         // Serialize snapshot
-        let data = bincode::serialize(snapshot)
-            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let data =
+            bincode::serialize(snapshot).map_err(|e| StoreError::Serialization(e.to_string()))?;
 
         // Write to file
-        std::fs::write(&snapshot_path, data)
-            .map_err(|e| StoreError::FileWrite(e.to_string()))?;
+        std::fs::write(&snapshot_path, data).map_err(|e| StoreError::FileWrite(e.to_string()))?;
 
         // Sync to disk
         Command::new("sync")
@@ -189,20 +185,17 @@ impl EncryptedStore {
 
     /// Load snapshot from disk
     pub async fn load_snapshot(&self, snapshot_id: &str) -> Result<Option<Snapshot>, StoreError> {
-        let snapshot_path = format!(
-            "{}/snapshots/{}.bin",
-            self.mount_point, snapshot_id
-        );
+        let snapshot_path = format!("{}/snapshots/{}.bin", self.mount_point, snapshot_id);
 
         if !Path::new(&snapshot_path).exists() {
             return Ok(None);
         }
 
-        let data = std::fs::read(&snapshot_path)
-            .map_err(|e| StoreError::FileRead(e.to_string()))?;
+        let data =
+            std::fs::read(&snapshot_path).map_err(|e| StoreError::FileRead(e.to_string()))?;
 
-        let snapshot = bincode::deserialize(&data)
-            .map_err(|e| StoreError::Deserialization(e.to_string()))?;
+        let snapshot =
+            bincode::deserialize(&data).map_err(|e| StoreError::Deserialization(e.to_string()))?;
 
         Ok(Some(snapshot))
     }

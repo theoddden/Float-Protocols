@@ -167,11 +167,7 @@ impl ATECC608B {
     }
 
     /// Verify a signature using ECC P-256 public key in slot 0
-    pub fn verify(
-        &mut self,
-        digest: &[u8; 32],
-        signature: &[u8; 64],
-    ) -> Result<bool, AteccError> {
+    pub fn verify(&mut self, digest: &[u8; 32], signature: &[u8; 64]) -> Result<bool, AteccError> {
         if digest.len() != 32 {
             return Err(AteccError::InvalidDigestLength);
         }
