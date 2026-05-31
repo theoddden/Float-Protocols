@@ -249,10 +249,12 @@ impl Wal {
             .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Write data
-        file.write_all(&data).map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.write_all(&data)
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Write CRC
-        file.write_all(&crc.to_be_bytes()).map_err(|e| WalError::FileWrite(e.to_string()))?;
+        file.write_all(&crc.to_be_bytes())
+            .map_err(|e| WalError::FileWrite(e.to_string()))?;
 
         // Sync to disk
         file.flush()
@@ -271,7 +273,9 @@ impl Wal {
 
         // Skip header
         let mut header_bytes = vec![0u8; WAL_HEADER_SIZE];
-        reader.read_exact(&mut header_bytes).map_err(|e| WalError::FileRead(e.to_string()))?;
+        reader
+            .read_exact(&mut header_bytes)
+            .map_err(|e| WalError::FileRead(e.to_string()))?;
 
         let mut messages = Vec::new();
 

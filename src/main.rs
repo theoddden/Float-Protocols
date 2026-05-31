@@ -22,7 +22,7 @@
 use float_protocols::gateway::{ASTSCredentials, Gateway, TelemetryConfig};
 use float_protocols::gnss::{GnssService, RtcSync};
 use float_protocols::hardware::{
-    ATECC608B, BG95Modem, ButtonEvent, ConfigButton, LedController, LedState, SX1262, Watchdog,
+    BG95Modem, ButtonEvent, ConfigButton, LedController, LedState, Watchdog, ATECC608B, SX1262,
 };
 use float_protocols::lora::LoRaMeshAggregator;
 use float_protocols::protocol::{Message, Priority, Protocol};

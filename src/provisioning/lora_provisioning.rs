@@ -4,8 +4,8 @@
 //! Activated by 3s config button hold.
 //! Listens for Float Node join requests, issues session keys.
 
-use crate::hardware::sx1262::{LoRaConfig, LoRaFrame, SX1262};
 use crate::hardware::config_button::ButtonEvent;
+use crate::hardware::sx1262::{LoRaConfig, LoRaFrame, SX1262};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -103,7 +103,10 @@ impl LoRaProvisioningMode {
 
         let sensor_type = String::from_utf8_lossy(&frame.data[5..5 + sensor_type_len]).to_string();
 
-        Ok(JoinRequest { node_id, sensor_type })
+        Ok(JoinRequest {
+            node_id,
+            sensor_type,
+        })
     }
 
     /// Generate session key
