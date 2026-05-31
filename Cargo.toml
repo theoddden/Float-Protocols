@@ -43,11 +43,11 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 # Metrics (optional for production monitoring)
 metrics = { version = "0.21", default-features = false, optional = true }
 
-# Hardware I/O (Raspberry Pi CM5)
-rppal = "0.17"          # GPIO, SPI, I2C
-serialport = "4.6"      # UART (BG95-S5, MAX3232)
-spidev = "0.5"          # Linux spidev (SX1262)
-socketcan = "3.3"       # Linux SocketCAN
+# Hardware I/O (Raspberry Pi CM5) - optional for CI
+rppal = { version = "0.17", optional = true }          # GPIO, SPI, I2C
+serialport = { version = "4.6", optional = true }      # UART (BG95-S5, MAX3232)
+spidev = { version = "0.5", optional = true }          # Linux spidev (SX1262)
+socketcan = { version = "3.3", optional = true }       # Linux SocketCAN
 
 # GNSS
 nmea = "0.7"            # NMEA sentence parser
@@ -84,6 +84,7 @@ default = ["std"]
 std = ["tokio/rt-multi-thread", "tracing-subscriber"]
 tracing = ["tracing-subscriber"]
 metrics = ["dep:metrics"]
+hardware = ["rppal", "serialport", "spidev", "socketcan"]
 no-std = []  # For embedded targets
 
 [workspace]
