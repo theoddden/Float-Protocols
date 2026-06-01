@@ -24,7 +24,8 @@ mod main_hardware {
     use float_protocols::gateway::{ASTSCredentials, Gateway, TelemetryConfig};
     use float_protocols::gnss::{GnssService, RtcSync};
     use float_protocols::hardware::{
-        GM02SPModem, ButtonEvent, ConfigButton, LedController, LedState, Watchdog, ATECC608B, LR1121,
+        ButtonEvent, ConfigButton, GM02SPModem, LedController, LedState, Watchdog, ATECC608B,
+        LR1121,
     };
     use float_protocols::lora::LoRaMeshAggregator;
     use float_protocols::protocol::{Message, Priority, Protocol};
