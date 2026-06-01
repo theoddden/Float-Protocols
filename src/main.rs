@@ -7,16 +7,16 @@
 //! 1. Spawn watchdog kick task (first, before anything else)
 //! 2. Open dm-crypt NVMe volume, replay WAL into BiTemporalStore
 //! 3. Init ATECC608B (I2C), read serial, verify provisioned
-//! 4. Init BG95-S5 (UART), power on modem, wait for LTE-M registration
-//! 5. Init SX1262 (SPI), configure frequency, arm DIO1 IRQ
+//! 4. Init GM02SP (UART), power on modem, wait for LTE-M registration
+//! 5. Init LR1121 (SPI), configure frequency, arm DIO1 IRQ
 //! 6. Init RS-232/RS-485/CAN readers
 //! 7. Start config button interrupt listener
 //! 8. Start LED state machine task
 //! 9. Start GNSS reader, sync RTC when fix acquired
 //! 10. Start gateway (protocol translation)
-//! 11. Bridge: SX1262 RX → gateway.send()
+//! 11. Bridge: LR1121 RX → gateway.send()
 //!     RS-232/RS-485/CAN frame → gateway.send()
-//!     gateway uplink → BG95-S5 AT uplink
+//!     gateway uplink → GM02SP AT uplink
 //! 12. Graceful shutdown: flush WAL, close dm-crypt, kick watchdog one last time
 
 #[cfg(feature = "hardware")]
@@ -24,7 +24,7 @@ mod main_hardware {
     use float_protocols::gateway::{ASTSCredentials, Gateway, TelemetryConfig};
     use float_protocols::gnss::{GnssService, RtcSync};
     use float_protocols::hardware::{
-        BG95Modem, ButtonEvent, ConfigButton, LedController, LedState, Watchdog, ATECC608B, SX1262,
+        GM02SPModem, ButtonEvent, ConfigButton, LedController, LedState, Watchdog, ATECC608B, LR1121,
     };
     use float_protocols::lora::LoRaMeshAggregator;
     use float_protocols::protocol::{Message, Priority, Protocol};
@@ -80,18 +80,18 @@ mod main_hardware {
             tracing::warn!("Gateway not provisioned, waiting for provisioning via QR code or LoRa");
         }
 
-        // Step 4: Init BG95-S5 modem
-        let mut modem = BG95Modem::new().await?;
+        // Step 4: Init GM02SP modem
+        let mut modem = GM02SPModem::new().await?;
         modem.register_network().await?;
-        tracing::info!("BG95-S5 modem registered to network");
+        tracing::info!("GM02SP modem registered to network");
 
-        // Step 5: Init SX1262 LoRa
+        // Step 5: Init LR1121 LoRa
         let lora_freq = std::env::var("LORA_FREQ")
             .unwrap_or_else(|_| "915".to_string())
             .parse::<u32>()
             .unwrap_or(915);
-        let sx1262 = SX1262::new(lora_freq)?;
-        tracing::info!("SX1262 initialized at {} MHz", lora_freq);
+        let lr1121 = LR1121::new(lora_freq)?;
+        tracing::info!("LR1121 initialized at {} MHz", lora_freq);
 
         // Step 6: Init sensor readers
         let (sensor_tx, sensor_rx) = mpsc::channel(1000);
@@ -125,7 +125,7 @@ mod main_hardware {
         // Step 7: Start config button interrupt listener
         let (config_button, mut button_rx) = ConfigButton::new()?;
         let led_controller = LedController::new()?;
-        let provisioning_mode = LoRaProvisioningMode::new(sx1262);
+        let provisioning_mode = LoRaProvisioningMode::new(lr1121);
 
         tokio::spawn(async move {
             while let Some(event) = button_rx.recv().await {
@@ -215,7 +215,7 @@ mod main_hardware {
 
         // Step 11b: Bridge LoRa mesh to gateway
         let (lora_tx, lora_rx) = mpsc::channel(1000);
-        let lora_aggregator = LoRaMeshAggregator::new(sx1262, lora_tx);
+        let lora_aggregator = LoRaMeshAggregator::new(lr1121, lora_tx);
         lora_aggregator.start().await?;
 
         let gateway_clone2 = Arc::clone(&gateway);

@@ -3,7 +3,7 @@
 //! Aggregates sensor data from Float Node hubs over LoRa.
 //! Decodes node payloads, forwards to gateway.
 
-use crate::hardware::sx1262::{LoRaFrame, SX1262};
+use crate::hardware::lr1121::{LoRaFrame, LR1121};
 use crate::lora::node_registry::{LoRaNode, NodeRegistry};
 use crate::protocol::{Message, Priority, Protocol};
 use bytes::Bytes;
@@ -12,16 +12,16 @@ use tokio::sync::mpsc;
 
 /// LoRa mesh aggregator
 pub struct LoRaMeshAggregator {
-    sx1262: Arc<tokio::sync::Mutex<SX1262>>,
+    lr1121: Arc<tokio::sync::Mutex<LR1121>>,
     node_registry: Arc<NodeRegistry>,
     tx: mpsc::Sender<Message>,
 }
 
 impl LoRaMeshAggregator {
     /// Initialize LoRa mesh aggregator
-    pub fn new(sx1262: SX1262, tx: mpsc::Sender<Message>) -> Self {
+    pub fn new(lr1121: LR1121, tx: mpsc::Sender<Message>) -> Self {
         Self {
-            sx1262: Arc::new(tokio::sync::Mutex::new(sx1262)),
+            lr1121: Arc::new(tokio::sync::Mutex::new(lr1121)),
             node_registry: Arc::new(NodeRegistry::new()),
             tx,
         }
@@ -29,14 +29,14 @@ impl LoRaMeshAggregator {
 
     /// Start listening for LoRa frames
     pub async fn start(&self) -> Result<(), MeshError> {
-        let sx1262 = self.sx1262.clone();
+        let lr1121 = self.lr1121.clone();
         let node_registry = self.node_registry.clone();
         let tx = self.tx.clone();
 
         tokio::spawn(async move {
             loop {
                 // Receive LoRa frame
-                match sx1262.lock().await.rx_packet().await {
+                match lr1121.lock().await.rx_packet().await {
                     Ok(frame) => {
                         // Try to decode as sensor data
                         if let Ok(message) = Self::decode_sensor_frame(&frame, &node_registry) {
@@ -118,7 +118,7 @@ impl LoRaMeshAggregator {
         ack.extend_from_slice(&node_id.to_be_bytes());
         ack.extend_from_slice(&seq.to_be_bytes());
 
-        self.sx1262.lock().await.tx_packet(&ack).await?;
+        self.lr1121.lock().await.tx_packet(&ack).await?;
         Ok(())
     }
 

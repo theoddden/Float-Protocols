@@ -1,9 +1,9 @@
 //! GNSS Service
 //!
-//! GNSS positioning and time from BG95-S5 secondary GNSS port.
+//! GNSS positioning and time from GM02SP secondary GNSS port.
 //! NMEA sentence parsing for position, velocity, and time.
 
-use crate::hardware::bg95::BG95Modem;
+use crate::hardware::gm02sp::GM02SPModem;
 use nmea::{NmeaSentence, ParseResult};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -43,13 +43,13 @@ impl Default for GnssFix {
 
 /// GNSS service
 pub struct GnssService {
-    modem: BG95Modem,
+    modem: GM02SPModem,
     enabled: bool,
 }
 
 impl GnssService {
     /// Initialize GNSS service
-    pub async fn new(modem: BG95Modem) -> Result<Self, GnssError> {
+    pub async fn new(modem: GM02SPModem) -> Result<Self, GnssError> {
         let mut service = Self {
             modem,
             enabled: false,

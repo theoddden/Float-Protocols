@@ -1,11 +1,11 @@
 //! LoRa Provisioning Mode
 //!
-//! LoRa node provisioning via SX1262.
+//! LoRa node provisioning via LR1121.
 //! Activated by 3s config button hold.
 //! Listens for Float Node join requests, issues session keys.
 
 use crate::hardware::config_button::ButtonEvent;
-use crate::hardware::sx1262::{LoRaConfig, LoRaFrame, SX1262};
+use crate::hardware::lr1121::{LoRaConfig, LoRaFrame, LR1121};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,16 +22,16 @@ pub struct LoRaNode {
 
 /// LoRa provisioning mode
 pub struct LoRaProvisioningMode {
-    sx1262: Arc<Mutex<SX1262>>,
+    lr1121: Arc<Mutex<LR1121>>,
     nodes: Arc<Mutex<HashMap<u32, LoRaNode>>>,
     active: Arc<Mutex<bool>>,
 }
 
 impl LoRaProvisioningMode {
     /// Initialize LoRa provisioning mode
-    pub fn new(sx1262: SX1262) -> Self {
+    pub fn new(lr1121: LR1121) -> Self {
         Self {
-            sx1262: Arc::new(Mutex::new(sx1262)),
+            lr1121: Arc::new(Mutex::new(lr1121)),
             nodes: Arc::new(Mutex::new(HashMap::new())),
             active: Arc::new(Mutex::new(false)),
         }
@@ -42,14 +42,14 @@ impl LoRaProvisioningMode {
         *self.active.lock().await = true;
         tracing::info!("LoRa provisioning mode started");
 
-        let sx1262 = self.sx1262.clone();
+        let lr1121 = self.lr1121.clone();
         let nodes = self.nodes.clone();
         let active = self.active.clone();
 
         tokio::spawn(async move {
             while *active.lock().await {
                 // Listen for join requests
-                if let Ok(frame) = sx1262.lock().await.rx_packet().await {
+                if let Ok(frame) = lr1121.lock().await.rx_packet().await {
                     if let Ok(node) = Self::parse_join_request(&frame) {
                         // Issue session key
                         let session_key = Self::generate_session_key();
@@ -67,7 +67,7 @@ impl LoRaProvisioningMode {
 
                         // Send join accept
                         let accept = Self::build_join_accept(&node_entry);
-                        let _ = sx1262.lock().await.tx_packet(&accept).await;
+                        let _ = lr1121.lock().await.tx_packet(&accept).await;
 
                         tracing::info!("Provisioned LoRa node: {}", node.node_id);
                     }

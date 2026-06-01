@@ -1,0 +1,162 @@
+ERC report (2026-06-01T12:20:48, Encoding UTF8)
+Report includes: Errors, Warnings
+
+***** Sheet /
+[power_pin_not_driven]: Input Power pin not driven by any Output Power pins
+    ; error
+    @(2100 mils, 700 mils): Symbol U5 Pin 2 [VIN, Power input, Line]
+[pin_not_connected]: Pin not connected
+    ; error
+    @(2200 mils, 7000 mils): Pin 1 [???, ?]
+[pin_not_connected]: Pin not connected
+    ; error
+    @(4952 mils, 797 mils): Symbol #PWR01 Pin 1 [Power input, Line]
+[label_dangling]: Label not connected
+    ; error
+    @(5574 mils, 6345 mils): Label 'LED_G'
+[power_pin_not_driven]: Input Power pin not driven by any Output Power pins
+    ; error
+    @(5750 mils, 650 mils): Symbol U6 Pin 14 [VCC, Power input, Line]
+[missing_power_pin]: Symbol U6 has input power pins in units [ A, C ] that are not placed
+    ; error
+    @(5750 mils, 1250 mils): Symbol U6 [7427]
+[missing_power_pin]: Symbol U2 has input power pins in units [ A ] that are not placed
+    ; error
+    @(6900 mils, 3600 mils): Symbol U2 [Compute_Module_5_Functional]
+[power_pin_not_driven]: Input Power pin not driven by any Output Power pins
+    ; error
+    @(6900 mils, 4900 mils): Symbol U2 Pin 78 [GPIO_VREF, Power input, Line]
+[power_pin_not_driven]: Input Power pin not driven by any Output Power pins
+    ; error
+    @(9450 mils, 5400 mils): Symbol U3 Pin 77 [+5V, Power input, Line]
+[missing_power_pin]: Symbol U3 has input power pins in units [ B ] that are not placed
+    ; error
+    @(9450 mils, 5450 mils): Symbol U3 [Compute_Module_5_Functional]
+[pin_to_pin]: Pins of type Output and Output are connected
+    ; error
+    @(10800 mils, 2200 mils): Symbol U1 Pin 46 [USIM_CLK, Output, Clock]
+    @(4100 mils, 2350 mils): Symbol U7 Pin 1 [RO, Output, Line]
+[pin_to_pin]: Pins of type Output and Output are connected
+    ; error
+    @(10800 mils, 2300 mils): Symbol U1 Pin 44 [USIM_RST, Output, Line]
+    @(10800 mils, 2200 mils): Symbol U1 Pin 46 [USIM_CLK, Output, Clock]
+[multiple_net_names]: Both BG95_PWRKEY and CAN_TX_MCU are attached to the same items; BG95_PWRKEY will be used in the netlist
+    ; warning
+    @(8550 mils, 5300 mils): Label 'BG95_PWRKEY'
+    @(500 mils, 3200 mils): Label 'CAN_TX_MCU'
+[pin_to_pin]: Pins of type Tri-state and Output are connected
+    ; warning
+    @(500 mils, 3300 mils): Symbol U12 Pin 4 [RXD, Tri-state, Line]
+    @(4100 mils, 2350 mils): Symbol U7 Pin 1 [RO, Output, Line]
+[footprint_link_issues]: Footprint 'M12_Panel_2pin' not found in library 'Connector'
+    ; warning
+    @(700 mils, 900 mils): Symbol J1 [M12_L_Power]
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(750 mils, 3900 mils): No Connect
+[footprint_link_issues]: The current configuration does not include the footprint library 'Microchip'
+    ; warning
+    @(1200 mils, 6000 mils): Symbol U4 [ATECC608B-MAHDA-T]
+[pin_to_pin]: Pins of type Tri-state and Output are connected
+    ; warning
+    @(2000 mils, 4250 mils): Symbol U9 Pin 16 [MISO, Tri-state, Inverted]
+    @(4100 mils, 2350 mils): Symbol U7 Pin 1 [RO, Output, Line]
+[footprint_link_issues]: Footprint 'M12_Panel_8pin' not found in library 'Connector'
+    ; warning
+    @(2150 mils, 2700 mils): Symbol J2 [M12_A_Sensor_8pin]
+[footprint_link_issues]: Footprint 'SW_Push_6x6mm_H10mm' not found in library 'Button_Switch_SMD'
+    ; warning
+    @(2200 mils, 7000 mils): Symbol SW1 [SW_Push]
+[footprint_link_issues]: The current configuration does not include the footprint library '4ms_Package_SOIC'
+    ; warning
+    @(2600 mils, 950 mils): Symbol U5 [TPS54332]
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(2700 mils, 3900 mils): Label 'CM5_RUN'
+[footprint_link_issues]: The current configuration does not include the footprint library 'Eseye'
+    ; warning
+    @(3350 mils, 2600 mils): Symbol U10 [EIS3_eSIM]
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(4952 mils, 797 mils): Symbol #PWR01 Pin 1 [Power input, Line]
+[no_connect_connected]: A pin with a "no connection" flag is connected
+    ; warning
+    @(5050 mils, 4550 mils): Symbol R4 Pin 2 [Passive, Line]
+    @(10800 mils, 3300 mils): No Connect
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5699 mils, 1950 mils): Vertical Wire, length 92 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5699 mils, 2042 mils): Wire, length 8 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5699 mils, 2166 mils): Vertical Wire, length 124 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5700 mils, 2150 mils): Wire, length 16 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5699 mils, 2290 mils): Wire, length 10 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5700 mils, 2550 mils): Wire, length 11 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5700 mils, 2300 mils): Wire, length 239 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5701 mils, 1933 mils): Wire, length 17 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(5701 mils, 1933 mils): Horizontal Wire, length 1549 mils
+[unconnected_wire_endpoint]: Unconnected wire endpoint
+    ; warning
+    @(5750 mils, 800 mils): Vertical Wire, length 150 mils
+[missing_input_pin]: Symbol U6 has input pins in units [ A, C ] that are not placed
+    ; warning
+    @(5750 mils, 1250 mils): Symbol U6 [7427]
+[missing_unit]: Symbol U6 has unplaced units [ A, C ]
+    ; warning
+    @(5750 mils, 1250 mils): Symbol U6 [7427]
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(6500 mils, 950 mils): Label 'ANT_LTE_M'
+[footprint_link_issues]: The current configuration does not include the footprint library 'CM5'
+    ; warning
+    @(6900 mils, 3600 mils): Symbol U2 [Compute_Module_5_Functional]
+[missing_bidi_pin]: Symbol U2 has bidirectional pins in units [ G, J, K, . ] that are not placed
+    ; warning
+    @(6900 mils, 3600 mils): Symbol U2 [Compute_Module_5_Functional]
+[missing_input_pin]: Symbol U2 has input pins in units [ C, D, E, . ] that are not placed
+    ; warning
+    @(6900 mils, 3600 mils): Symbol U2 [Compute_Module_5_Functional]
+[missing_unit]: Symbol U2 has unplaced units [ A, C, D, . ]
+    ; warning
+    @(6900 mils, 3600 mils): Symbol U2 [Compute_Module_5_Functional]
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(7250 mils, 2050 mils): Vertical Wire, length 117 mils
+[endpoint_off_grid]: Symbol pin or wire end off connection grid
+    ; warning
+    @(7250 mils, 700 mils): Vertical Wire, length 1233 mils
+[footprint_link_issues]: The current configuration does not include the footprint library 'CM5'
+    ; warning
+    @(9450 mils, 5450 mils): Symbol U3 [Compute_Module_5_Functional]
+[missing_bidi_pin]: Symbol U3 has bidirectional pins in units [ G, J, K, . ] that are not placed
+    ; warning
+    @(9450 mils, 5450 mils): Symbol U3 [Compute_Module_5_Functional]
+[missing_input_pin]: Symbol U3 has input pins in units [ C, D, E, . ] that are not placed
+    ; warning
+    @(9450 mils, 5450 mils): Symbol U3 [Compute_Module_5_Functional]
+[missing_unit]: Symbol U3 has unplaced units [ B, C, D, . ]
+    ; warning
+    @(9450 mils, 5450 mils): Symbol U3 [Compute_Module_5_Functional]
+
+ ** ERC messages: 48  Errors 12  Warnings 36
+
+ ** Ignored checks:
+    - Global label only appears once in the schematic
+    - Four connection points are joined together
+    - SPICE model issue
+    - Assigned footprint doesn't match footprint filters
