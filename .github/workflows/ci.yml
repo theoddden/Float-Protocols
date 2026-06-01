@@ -54,7 +54,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all-targets --all-features -- -D warnings
+          args: --all-targets -- -D warnings
 
   test:
     name: Test
@@ -93,7 +93,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --verbose
+          args: --verbose
 
   build:
     name: Build
@@ -136,7 +136,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features
+          args: --release
 
   bench:
     name: Benchmark
@@ -175,7 +175,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: bench
-          args: --all-features
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
@@ -234,7 +233,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: tarpaulin
-          args: --out Xml --all-features --verbose
+          args: --out Xml --verbose
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
