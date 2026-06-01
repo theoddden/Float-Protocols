@@ -33,6 +33,7 @@ pub struct Metrics {
     samsara_messages: AtomicU64,
     nidd_messages: AtomicU64,
     asts_messages: AtomicU64,
+    lora_messages: AtomicU64,
 }
 
 impl Metrics {
@@ -56,6 +57,7 @@ impl Metrics {
             samsara_messages: AtomicU64::new(0),
             nidd_messages: AtomicU64::new(0),
             asts_messages: AtomicU64::new(0),
+            lora_messages: AtomicU64::new(0),
         }
     }
 
@@ -109,6 +111,7 @@ impl Metrics {
             Protocol::Samsara => self.samsara_messages.fetch_add(1, Ordering::Relaxed),
             Protocol::NIDD => self.nidd_messages.fetch_add(1, Ordering::Relaxed),
             Protocol::ASTSpaceMobile => self.asts_messages.fetch_add(1, Ordering::Relaxed),
+            Protocol::LoRaMesh => self.lora_messages.fetch_add(1, Ordering::Relaxed),
         };
     }
 
@@ -150,6 +153,7 @@ impl Metrics {
             samsara_messages: self.samsara_messages.load(Ordering::Relaxed),
             nidd_messages: self.nidd_messages.load(Ordering::Relaxed),
             asts_messages: self.asts_messages.load(Ordering::Relaxed),
+            lora_messages: self.lora_messages.load(Ordering::Relaxed),
             transmission_batches_sent,
             transmission_batch_messages,
             avg_transmission_batch_size,
@@ -174,6 +178,7 @@ pub struct MetricsSnapshot {
     pub samsara_messages: u64,
     pub nidd_messages: u64,
     pub asts_messages: u64,
+    pub lora_messages: u64,
     pub transmission_batches_sent: u64,
     pub transmission_batch_messages: u64,
     pub avg_transmission_batch_size: f64,

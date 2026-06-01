@@ -357,6 +357,7 @@ impl ShardManager {
             Protocol::Samsara => 6,
             Protocol::NIDD => 7,
             Protocol::ASTSpaceMobile => 8,
+            Protocol::LoRaMesh => 9,
         };
         // Ensure we never collide with the reserved deadzone shard (ShardId(0))
         ShardId(1 + (hash % self.num_shards as u64))

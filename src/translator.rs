@@ -96,6 +96,7 @@ impl Translator {
             Protocol::Samsara => Self::translate_samsara(message).await,
             Protocol::NIDD => Ok(message), // NIDD payload passes through to ASTS as-is
             Protocol::ASTSpaceMobile => Ok(message), // Already in target format
+            Protocol::LoRaMesh => Ok(message), // Already in target format
         }
     }
 
@@ -289,6 +290,7 @@ impl Translator {
             Protocol::Samsara => Self::decode_samsara(&message.data)?,
             Protocol::NIDD => message.data.clone(),
             Protocol::ASTSpaceMobile => message.data.clone(),
+            Protocol::LoRaMesh => message.data.clone(),
         };
         let mut translated =
             Message::new(Protocol::ASTSpaceMobile, translated_data, message.priority);
