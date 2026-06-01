@@ -15,8 +15,8 @@
 //! 9. Start GNSS reader, sync RTC when fix acquired
 //! 10. Start gateway (protocol translation)
 //! 11. Bridge: SX1262 RX → gateway.send()
-//!             RS-232/RS-485/CAN frame → gateway.send()
-//!             gateway uplink → BG95-S5 AT uplink
+//!     RS-232/RS-485/CAN frame → gateway.send()
+//!     gateway uplink → BG95-S5 AT uplink
 //! 12. Graceful shutdown: flush WAL, close dm-crypt, kick watchdog one last time
 
 #[cfg(feature = "hardware")]
