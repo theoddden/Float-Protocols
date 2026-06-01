@@ -74,7 +74,9 @@ mod main_hardware {
 
         // Check provisioning status
         let provisioning = ProvisioningService::new(atecc)?;
-        if provisioning.status() == float_protocols::provisioning::ProvisioningStatus::NotProvisioned {
+        if provisioning.status()
+            == float_protocols::provisioning::ProvisioningStatus::NotProvisioned
+        {
             tracing::warn!("Gateway not provisioned, waiting for provisioning via QR code or LoRa");
         }
 
